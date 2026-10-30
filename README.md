@@ -2,6 +2,44 @@
 
 > LangGraph 기반 협업형 멀티 에이전트 경제 분석 시스템 (v2.4)
 
+## PDF 텍스트 검색 CLI
+
+기존 의존성을 설치한 Python 환경에서 실행합니다.
+
+```bash
+.venv/bin/python -m bok_cli search "생산성" --data-dir data --limit 5
+```
+
+`--data-dir` 기본값은 프로젝트의 `data/`입니다. 검색은 해당 폴더의 PDF만 읽습니다.
+하위 폴더와 기존 FAISS 인덱스는 읽지 않습니다. 파일과 인덱스를 변경하지 않습니다.
+
+CLI는 Azure 설정이나 네트워크 없이 PDF 텍스트를 검색합니다. 공백으로 나눈 검색어 중
+하나 이상을 포함하는 페이지를 찾고, 일치한 검색어 수가 많은 순서로 반환합니다.
+대소문자를 구분하지 않습니다. 동점은 파일명과 페이지 순서입니다.
+기존 Streamlit 화면의 Azure 의미 검색과는 별도 방식이며 결과에 `method="text"`를 표시합니다.
+동의어 검색과 스캔 문서 OCR은 지원하지 않습니다.
+
+성공하면 stdout에 JSON 하나를 출력하고 종료 코드 0을 반환합니다.
+
+- `status`는 `ok`, `empty_corpus`, `no_matches` 중 하나입니다.
+- `results`의 각 항목은 `source`, 1부터 시작하는 `page`, 페이지 전체 `text`를 포함합니다.
+- `published_at`은 `null`입니다. 파일 수정 시각을 발행일로 추정하지 않습니다.
+- 문서가 없거나 일치하는 페이지가 없으면 `results`는 빈 배열입니다. 가상 문서는 만들지 않습니다.
+
+잘못된 인자, 존재하지 않는 폴더, 읽을 수 없는 PDF는 stderr에 오류 JSON을 출력하고
+종료 코드 2를 반환합니다. 이때 stdout은 비어 있습니다. PDF 하나라도 읽을 수 없으면
+부분 검색 결과를 성공으로 반환하지 않습니다. `--help`는 일반 도움말을 출력합니다.
+
+```bash
+.venv/bin/python -m unittest discover -s tests -v
+```
+
+테스트는 실제 PDF 파일과 CLI 프로세스, 외부 모델 호출을 대체한 LangGraph 실행,
+Streamlit 화면의 응답 수집을 검증합니다. Azure 서비스는 호출하지 않습니다.
+`MAX_ITERATIONS`는 요청당 Supervisor 판단 횟수입니다. 시간 제한도 요청마다 새로 시작하며,
+Supervisor가 다시 실행될 때 확인합니다. 진행 중인 외부 API 호출을 중단하는 제한은 아닙니다.
+기존 환경에서 `APP_GRAPH_VERSION=3`을 지정했다면 `4`로 갱신하고 앱을 다시 실행하세요.
+
 ## 프로젝트 개요
 
 AI 에이전트 팀(Supervisor, Researcher, Analyst)이 협업하여 경제 질문에 대한 심층 분석을 제공하는 Streamlit 웹 애플리케이션입니다. 사용자가 PDF 문서를 업로드하고 자연어로 질문하면, RAG 파이프라인과 웹 검색을 결합하여 근거 기반 분석 보고서를 생성합니다.

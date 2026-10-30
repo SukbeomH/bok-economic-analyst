@@ -4,8 +4,10 @@ Streamlit 네이티브 컴포넌트 우선 사용으로 안정적이고 일관�
 """
 import os
 import hashlib
+import time
 import streamlit as st
 from typing import TypedDict, Annotated, List
+from typing_extensions import NotRequired
 from langchain_core.messages import HumanMessage, AIMessage
 
 # LangGraph 관련
@@ -32,6 +34,8 @@ from components.chat_interface import (
 # ==============================================================================
 class AgentState(TypedDict):
     messages: Annotated[list, add_messages]
+    started_at: NotRequired[float]
+    iterations: NotRequired[int]
 
 
 class _SimpleAgentExecutor:
@@ -63,7 +67,7 @@ def create_agent(llm, tools: list, system_prompt: str, use_react: bool = True):
         ]).partial(system_prompt=system_prompt, tools=tools_desc, tool_names=tool_names)
         
         agent = create_tool_calling_agent(llm, tools, prompt)
-        return AgentExecutor(agent=agent, tools=tools, verbose=True)
+        return AgentExecutor(agent=agent, tools=tools, verbose=False)
 
     # 도구가 없거나 최종 응답만 원하는 경우
     from langchain_core.output_parsers import StrOutputParser
@@ -82,45 +86,16 @@ def agent_node(state, agent, name):
     
     for attempt in range(max_retries):
         try:
-            last_message = state["messages"][-1]
-            
-            # Supervisor에서 생성된 tool call들을 처리
-            if hasattr(last_message, "tool_calls") and last_message.tool_calls:
-                logger.info("[agent-node:%s] tool_calls=%d", name, len(last_message.tool_calls))
-                responses = []
-                for tool_call in last_message.tool_calls:
-                    tool_name = (tool_call.get('name') or '').lower()
-                    if name not in tool_name:
-                        continue
-                    tool_args = tool_call.get('args', {})
-                    worker_input = tool_args.get('input') or tool_args.get('query')
-                    if worker_input is None and len(tool_args) > 0:
-                        worker_input = next(iter(tool_args.values()))
-                    
-                    if not isinstance(worker_input, str):
-                        try:
-                            worker_input = str(worker_input)
-                        except Exception:
-                            worker_input = str(worker_input)
-                    
-                    invoke_result = agent.invoke({"input": worker_input or ""})
-                    result_text = invoke_result.get("output", "")
-                    responses.append({"content": result_text, "role": "assistant", "name": name})
-                return {"messages": responses}
-            
-            # 직접 작업 실행
-            worker_input = ""
-            for msg in reversed(state.get("messages", [])):
-                if isinstance(msg, HumanMessage):
-                    worker_input = getattr(msg, "content", "")
-                    break
-            
-            if isinstance(agent, AgentExecutor):
-                invoke_result = agent.invoke({"input": worker_input or ""})
-                result_text = invoke_result.get("output", "")
-            else:
-                result_text = agent.invoke({"input": worker_input or ""}).get("output", "")
-            
+            conversation = []
+            for message in state["messages"]:
+                content = message.content
+                if not isinstance(message, HumanMessage) and content.strip().upper().startswith("ROUTE:"):
+                    continue
+                speaker = message.name or message.type
+                conversation.append(f"[{speaker}]\n{content}")
+            worker_input = "\n\n".join(conversation)
+            result_text = agent.invoke({"input": worker_input}).get("output", "")
+
             return {"messages": [{"content": result_text, "role": "assistant", "name": name}]}
             
         except Exception as e:
@@ -174,24 +149,17 @@ def create_supervisor(llm, agent_names: List[str]):
         messages = state.get("messages", []) if isinstance(state, dict) else []
         logger.info("[supervisor] 입력 메시지 수=%d", len(messages))
         
-        # 반복 한도 체크
-        if len(messages) > Config.MAX_ITERATIONS:
-            logger.warning("[supervisor] 최대 반복 횟수 도달 (%d), 강제 종료", Config.MAX_ITERATIONS)
-            return {"messages": [{"content": "ROUTE: END", "role": "assistant", "name": "supervisor"}]}
-        
-        # 타임아웃 체크
-        import time
-        current_time = time.time()
-        if hasattr(supervisor_node, '_start_time'):
-            if current_time - supervisor_node._start_time > Config.TIMEOUT_SECONDS:
-                logger.warning("[supervisor] 타임아웃 도달 (%d초), 강제 종료", Config.TIMEOUT_SECONDS)
-                return {"messages": [{"content": "ROUTE: END", "role": "assistant", "name": "supervisor"}]}
-        else:
-            supervisor_node._start_time = current_time
-        
+        now = time.monotonic()
+        started_at = state.get("started_at", now)
+        iterations = state.get("iterations", 0)
+        update = {"started_at": started_at, "iterations": iterations}
+        if iterations >= Config.MAX_ITERATIONS or now - started_at >= Config.TIMEOUT_SECONDS:
+            logger.warning("[supervisor] 요청별 실행 한도 도달")
+            return {**update, "messages": [AIMessage(content="ROUTE: END", name="supervisor")]}
+
         formatted = prompt.invoke({"messages": messages})
         ai_msg = llm.invoke(formatted)
-        return {"messages": [ai_msg]}
+        return {**update, "iterations": iterations + 1, "messages": [ai_msg]}
 
     return supervisor_node
 
@@ -455,7 +423,7 @@ def create_graph(llm, retriever):
     workflow.set_entry_point("supervisor")
 
     compiled_graph = workflow.compile()
-    logger.info("[graph] 재귀 한도 설정: %d", Config.MAX_ITERATIONS)
+    logger.info("[graph] Supervisor 판단 한도: %d", Config.MAX_ITERATIONS)
     
     return compiled_graph
 
@@ -575,166 +543,39 @@ def main_chat_interface():
 
                     for chunk in StateManager.get_agent_graph().stream(
                         {"messages": all_messages},
-                        config={"recursion_limit": Config.MAX_ITERATIONS},
+                        config={"recursion_limit": Config.MAX_ITERATIONS * 2 + 3},
                         stream_mode="updates"
                     ):
                         logger.debug("[run] chunk=%s", chunk)
                         
-                        # Supervisor 단계 처리
-                        if "supervisor" in chunk:
-                            st.write("🧠 **Supervisor가 다음 단계를 결정 중입니다...**")
-                            logger.info("[run] supervisor 단계")
-                            if supervisor_messages := chunk["supervisor"].get("messages"):
-                                    last_supervisor_msg = supervisor_messages[-1]
-                                    content = getattr(last_supervisor_msg, "content", "").strip()
-                                    if content.startswith("Final Answer:"):
-                                        final_response = content.replace("Final Answer:", "").strip()
-                                        logger.info("[run] Supervisor Final Answer 수집: %s", final_response[:100])
-                                    elif content == "ROUTE: END":
-                                        # ROUTE: END 상황에서 Researcher의 마지막 응답을 사용
-                                        logger.info("[run] ROUTE: END 감지 - Researcher 응답 사용")
-                                        if accumulated_messages:
-                                            for msg in reversed(accumulated_messages):
-                                                if not msg.upper().startswith("ROUTE:") and "정보를 찾지 못했습니다" not in msg:
-                                                    final_response = msg
-                                                    logger.info("[run] ROUTE: END에서 유효한 응답 찾음: %s", final_response[:100])
-                                                    break
-                                        if not final_response:
-                                            final_response = "요청하신 정보를 찾지 못했습니다. 더 구체적인 키워드나 다른 질문으로 다시 시도해주세요."
-                                            logger.info("[run] ROUTE: END에서 기본 응답 생성")
-                                    elif content:
-                                        accumulated_messages.append(content)
-                            
-                            # Researcher 단계 처리
-                            if "researcher" in chunk:
-                                st.write("🔍 **Researcher가 정보를 수집하고 있습니다...**")
-                                logger.info("[run] researcher 단계")
-                                if researcher_messages := chunk["researcher"].get("messages"):
-                                    content = getattr(researcher_messages[-1], "content", "").strip()
-                                    if content:
-                                        accumulated_messages.append(content)
-                                        # Researcher의 응답을 유효한 응답으로 처리
-                                        if not final_response and not content.upper().startswith("ROUTE:"):
-                                            final_response = content
-                                            logger.info("[run] Researcher 응답을 최종 응답으로 설정: %s", final_response[:100])
-                                        if "웹검색이 비활성화" in content:
-                                            st.info("ℹ️ 웹검색이 비활성화되어 있습니다. 최신 정보 수집이 제한됩니다.")
-                                        elif "웹 검색 결과" in content:
-                                            st.success("✅ 웹에서 최신 정보를 수집했습니다.")
-                                        elif "정보를 찾지 못했습니다" in content:
-                                            st.warning("⚠️ 요청하신 정보를 찾지 못했습니다. 다른 키워드로 다시 시도해보세요.")
-                            
-                            # Analyst 단계 처리
-                            if "analyst" in chunk:
-                                st.write("✍️ **Analyst가 데이터를 분석하고 보고서를 작성 중입니다...**")
-                                logger.info("[run] analyst 단계")
-                                if analyst_messages := chunk["analyst"].get("messages"):
-                                    logger.info("[run] Analyst 메시지 수: %d", len(analyst_messages))
-                                    for i, msg in enumerate(analyst_messages):
-                                        # 메시지 객체 구조 디버깅
-                                        logger.info("[run] Analyst 메시지 %d 타입: %s", i, type(msg))
-                                        
-                                        # 다양한 방식으로 content 추출 시도
-                                        content = ""
-                                        if hasattr(msg, 'content'):
-                                            content = msg.content.strip()
-                                        elif isinstance(msg, dict) and 'content' in msg:
-                                            content = msg['content'].strip()
-                                        elif hasattr(msg, 'text'):
-                                            content = msg.text.strip()
-                                        elif isinstance(msg, str):
-                                            content = msg.strip()
-                                        
-                                        logger.info("[run] Analyst 메시지 %d content: %s", i, content[:200])
-                                        
-                                        if content and not content.upper().startswith("ROUTE:"):
-                                            final_response = content
-                                            accumulated_messages.append(content)
-                                            logger.info("[run] Analyst 최종 응답 수집: %s", final_response[:100])
-                                            break
-                                    if not final_response:
-                                        logger.warning("[run] Analyst에서 유효한 응답을 찾지 못함")
-                            
-                            # 전체 메시지 스트림에서 보강 수집
-                            if messages := chunk.get("messages"):
-                                logger.info("[run] 전체 메시지 스트림 처리: %d개 메시지", len(messages))
-                                for i, msg in enumerate(messages):
-                                    # 다양한 방식으로 content와 name 추출 시도
-                                    content = ""
-                                    name = ""
-                                    
-                                    if hasattr(msg, 'content'):
-                                        content = msg.content.strip()
-                                    elif isinstance(msg, dict) and 'content' in msg:
-                                        content = msg['content'].strip()
-                                    elif hasattr(msg, 'text'):
-                                        content = msg.text.strip()
-                                    elif isinstance(msg, str):
-                                        content = msg.strip()
-                                    
-                                    if hasattr(msg, 'name'):
-                                        name = msg.name
-                                    elif isinstance(msg, dict) and 'name' in msg:
-                                        name = msg['name']
-                                    
-                                    logger.info("[run] 메시지 %d [%s]: %s", i, name, content[:100])
-                                    
-                                    if content.startswith("Final Answer:"):
-                                        cleaned = content.replace("Final Answer:", "").strip()
-                                        if not cleaned.upper().startswith("ROUTE:"):
-                                            final_response = cleaned
-                                            logger.info("[run] 전체 스트림에서 Final Answer 수집: %s", final_response[:100])
-                                            break
-                                    
-                                    elif name == "analyst" and content and not content.upper().startswith("ROUTE:"):
-                                        if not final_response:
-                                            final_response = content
-                                            logger.info("[run] 전체 스트림에서 Analyst 응답 수집: %s", final_response[:100])
-                                        accumulated_messages.append(content)
+                        for node, label in (
+                            ("supervisor", "🧠 Supervisor가 다음 단계를 결정 중입니다..."),
+                            ("researcher", "🔍 Researcher가 정보를 수집하고 있습니다..."),
+                            ("analyst", "✍️ Analyst가 데이터를 분석하고 보고서를 작성 중입니다..."),
+                        ):
+                            if node not in chunk:
+                                continue
+                            st.write(label)
+                            for message in chunk[node].get("messages", []):
+                                content = message.content if hasattr(message, "content") else message["content"]
+                                content = content.strip()
+                                if not content or content.upper().startswith("ROUTE:"):
+                                    continue
+                                if node == "supervisor":
+                                    continue
+                                accumulated_messages.append(content)
+                                if node == "analyst":
+                                    final_response = content
 
-                        # 최종 응답이 비어있을 때 폴백 처리
-                        if not final_response and accumulated_messages:
-                            logger.info("[run] 폴백 처리 시작: 누적 메시지 %d개", len(accumulated_messages))
-                            # ROUTE: 로 시작하지 않는 마지막 메시지를 찾기
-                            for i, msg in enumerate(reversed(accumulated_messages)):
-                                logger.info("[run] 폴백 메시지 %d: %s", i, msg[:100])
-                                if not msg.upper().startswith("ROUTE:"):
-                                    # "정보를 찾지 못했습니다" 메시지는 적절한 응답으로 처리
-                                    if "정보를 찾지 못했습니다" in msg:
-                                        final_response = msg
-                                        logger.info("[run] 폴백: 정보 부족 메시지를 응답으로 사용")
-                                    else:
-                                        final_response = msg
-                                        logger.info("[run] 폴백: 누적 메시지에서 최종 응답 수집: %s", final_response[:100])
-                                    break
-                            if not final_response:
-                                logger.warning("[run] 폴백에서도 유효한 응답을 찾지 못함")
-                                # 마지막으로 Researcher의 실패 메시지를 사용
-                                for msg in accumulated_messages:
-                                    if "정보를 찾지 못했습니다" in msg:
-                                        final_response = msg
-                                        logger.info("[run] 폴백: Researcher 실패 메시지를 최종 응답으로 사용")
-                                        break
-                        
-                        # 최종 응답 검증
-                        if not final_response:
-                            final_response = "분석이 완료되었으나 응답을 생성하지 못했습니다. 다시 시도해주세요."
-                            logger.warning("[run] 최종 응답이 비어있음 - 기본 메시지 사용")
-                        
-                        logger.info("[run] 최종 응답 준비 완료 (길이=%d): %s", len(final_response), final_response[:100])
-                        
-                        # 근거 미리보기 표시
-                        render_evidence_preview(final_response)
+                    if not final_response:
+                        final_response = accumulated_messages[-1] if accumulated_messages else (
+                            "요청하신 정보를 찾지 못했습니다. 더 구체적인 키워드나 다른 질문으로 다시 시도해주세요."
+                        )
+                    render_evidence_preview(final_response)
+                    for figure in st.session_state.pop("pending_charts", []):
+                        st.plotly_chart(figure, use_container_width=True)
+                    st.success("✅ 분석 완료!")
 
-                        # 차트 렌더링
-                        if "pending_charts" in st.session_state and st.session_state["pending_charts"]:
-                            for fig in st.session_state["pending_charts"]:
-                                st.plotly_chart(fig, use_container_width=True)
-                            st.session_state["pending_charts"] = []
-
-                        # 분석 완료 메시지
-                        st.success("✅ 분석 완료!")
-                        
                 except Exception as e:
                     logger.exception("[run] 상태 업데이트 중 오류")
                     final_response = "분석 중 오류가 발생했습니다. 다시 시도해주세요."
@@ -790,4 +631,4 @@ def main_chat_interface():
 
 
 if __name__ == "__main__":
-    main() 
+    main()

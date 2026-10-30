@@ -2,11 +2,12 @@
 RAG (Retrieval-Augmented Generation) 파이프라인 모듈
 """
 import os
-import glob
+from pathlib import Path
 import streamlit as st
 from typing import Optional
 from langchain_community.vectorstores import FAISS
-from langchain_community.document_loaders import PyMuPDFLoader
+from langchain_core.documents import Document
+from bok_documents import load_pdf_pages
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain.retrievers import ContextualCompressionRetriever
 from langchain.retrievers.document_compressors import LLMChainExtractor
@@ -104,11 +105,13 @@ class RAGPipeline:
         # FAISS 인덱스 저장 경로
         index_path = os.path.join(Config.DATA_DIR, "faiss_index")
         
-        # 임베딩 모델 초기화
+        data_dir = Path(Config.DATA_DIR)
+        if not data_dir.is_dir():
+            raise ValueError("PDF 문서 폴더가 없습니다.")
+        pdf_files = sorted(path for path in data_dir.iterdir() if path.is_file() and path.suffix.lower() == ".pdf")
+        if not pdf_files:
+            raise ValueError("PDF 문서가 없습니다. 분석할 PDF를 먼저 추가하세요.")
         embeddings = self.model_factory.get_embedding_model()
-        
-        # PDF 파일 변경 확인
-        pdf_files = glob.glob(os.path.join(Config.DATA_DIR, "*.pdf"))
         current_pdf_mtime = max([os.path.getmtime(f) for f in pdf_files]) if pdf_files else 0
         
         # 인덱스 무효화 파일 확인
@@ -207,28 +210,17 @@ class RAGPipeline:
     def _build_new_index(self, pdf_files, embeddings, index_path, current_pdf_mtime, invalidation_file):
         """새로운 FAISS 인덱스를 빌드합니다."""
         logger.info("[rag] 새 인덱스 빌드 시작")
-        all_docs = []
-        
         logger.info("[rag] PDF 파일 수: %d", len(pdf_files))
         
-        if not pdf_files:
-            st.sidebar.warning("참고 자료가 없습니다. 기본 데이터로 분석합니다.")
-            from langchain_core.documents import Document
-            all_docs = [Document(page_content="[문서 1: 2025년 8월 통화정책방향 결정문 (가상)]\n- 제목: 한국은행 금융통화위원회, 기준금리 현 3.50%로 동결 결정\n- 결정 배경: 소비자물가 상승률이 2%대 후반으로 둔화되었으나, 여전히 높은 수준의 가계부채와 부동산 PF 부실 위험 등 금융안정 리스크가 상존하고 있음을 고려.")]
-        else:
-            for pdf_path in pdf_files:
-                try:
-                    loader = PyMuPDFLoader(pdf_path)
-                    docs = loader.load()
-                    for doc in docs:
-                        doc.metadata["source_filename"] = os.path.basename(pdf_path)
-                        if "page" in doc.metadata:
-                            doc.metadata["page_number"] = doc.metadata["page"] + 1
-                    all_docs.extend(docs)
-                    logger.info("[rag] 로드 완료: %s (%d pages)", os.path.basename(pdf_path), len(docs))
-                except Exception as e:
-                    logger.exception("[rag] 로드 실패: %s", os.path.basename(pdf_path))
-                    st.sidebar.error(f"'{os.path.basename(pdf_path)}' 파일 로드 실패: {e}")
+        all_docs = [
+            Document(page_content=page.text, metadata={
+                "source": str(Path(Config.DATA_DIR) / page.source),
+                "source_filename": page.source,
+                "page": page.page - 1,
+                "page_number": page.page,
+            })
+            for page in load_pdf_pages(Path(Config.DATA_DIR))
+        ]
 
         if not all_docs:
             logger.error("[rag] 문서 로드 실패: all_docs=0")
@@ -236,6 +228,8 @@ class RAGPipeline:
 
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
         split_docs = text_splitter.split_documents(all_docs)
+        if not split_docs:
+            raise ValueError("PDF에서 검색할 텍스트를 찾지 못했습니다.")
         logger.info("[rag] 텍스트 분할 완료: chunks=%d", len(split_docs))
 
         vectorstore = FAISS.from_documents(documents=split_docs, embedding=embeddings)
@@ -269,4 +263,4 @@ def build_rag_pipeline(cache_key: str):
         model_factory = AzureModelFactory()
         rag_pipeline = RAGPipeline(model_factory)
     
-    return rag_pipeline.build_pipeline(cache_key) 
+    return rag_pipeline.build_pipeline(cache_key)

@@ -121,11 +121,11 @@ def render_sidebar():
                             from components.common import render_pdf_page
                             render_pdf_page(fname)
         else:
-            st.info("업로드된 파일이 없습니다. 기본 데이터로 분석합니다.")
+            st.info("업로드된 파일이 없습니다. 분석할 PDF를 먼저 추가하세요.")
         
         st.divider()
         
         # 간소화된 사용 팁
         st.caption("💡 **팁**: 파일 업로드 후 바로 질문하시면 됩니다.")
         
-        return uploaded_files 
+        return uploaded_files

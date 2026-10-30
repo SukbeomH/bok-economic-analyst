@@ -29,7 +29,7 @@ class Config:
     # ==============================================================================
     LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
     DATA_DIR = os.getenv("DATA_DIR", "data")
-    APP_GRAPH_VERSION = os.getenv("APP_GRAPH_VERSION", "3")
+    APP_GRAPH_VERSION = os.getenv("APP_GRAPH_VERSION", "4")
     MAX_ITERATIONS = int(os.getenv("MAX_ITERATIONS", "10"))
     TIMEOUT_SECONDS = int(os.getenv("TIMEOUT_SECONDS", "300"))
     MAX_HISTORY_TURNS = int(os.getenv("MAX_HISTORY_TURNS", "6"))
@@ -189,4 +189,4 @@ class Config:
         print(f"   - 플랫폼: {env_info['platform']}")
         print(f"   - .env 파일: {'존재' if env_info['env_file_exists'] else '없음'}")
         print(f"   - 데이터 디렉토리: {'존재' if env_info['data_dir_exists'] else '없음'}")
-        print("=" * 60) 
+        print("=" * 60)
