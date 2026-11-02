@@ -1,5 +1,7 @@
 # HExoskeleton (HXSK)
 
+PDF 검색·분석 작업은 [BOK CLI 에이전트 가이드](docs/AGENT_GUIDE.md)를 참고하세요.
+
 > AI 에이전트 기반 개발 방법론. 순수 bash + 마크다운 기반, 외부 종속성 없음.
 > Setup: llms.txt 또는 .hxsk/prompts/setup.md 참조
 

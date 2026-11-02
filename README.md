@@ -4,6 +4,8 @@
 
 ## PDF 텍스트 검색 CLI
 
+로그인된 Codex·Claude Code의 검색·분석 사용법은 [에이전트 가이드](docs/AGENT_GUIDE.md)를 참고하세요.
+
 기존 의존성을 설치한 Python 환경에서 실행합니다.
 
 ```bash
