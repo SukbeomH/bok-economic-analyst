@@ -2,24 +2,28 @@
 
 # Overview
 
-본 프로젝트는 금융 전문가, 경제 연구원, 학생 등 전문 사용자를 위한 지능형 경제 분석 시스템입니다. 사용자가 자연어로 복잡한 경제 질문을 하면, 시스템은 신뢰할 수 있는 데이터 소스(사용자 업로드 PDF, 한국은행 공식 문서, 최신 웹 뉴스)를 기반으로 심층 분석 결과를 제공합니다. 여러 전문 AI 에이전트가 LangGraph를 통해 협업하여 정보를 수집, 분석하고 최종 보고서를 생성함으로써, 사용자의 데이터 분석 시간을 단축하고 의사결정의 질을 높이는 것을 목표로 합니다.
+본 프로젝트는 금융 전문가, 경제 연구원, 학생 등 전문 사용자를 위한 지능형 경제 분석 시스템입니다. 사용자가 자연어로 복잡한 경제 질문을 하면, 시스템은 신뢰할 수 있는 데이터 소스(사용자 업로드 PDF, 한국은행 공식 문서, 최신 웹 뉴스)를 기반으로 심층 분석 결과를 제공합니다. 기존 Streamlit 앱은 LangGraph 분석팀을 사용합니다. 외부 Codex·Claude Code는 BOK CLI로 로컬 PDF를 검색하고 로그인된 세션에서 분석합니다. 후자는 별도의 모델 API 키가 필요하지 않습니다. 현재 구현과 검증 상태는 .hxsk/SPEC.md에 기록합니다.
 
 # Core Features
 
 - **멀티 에이전트 협업 분석 (Multi-Agent Collaborative Analysis)**
   - **What it does**: 감독관(Supervisor), 연구원(Researcher), 분석가(Analyst)로 구성된 AI 팀이 협업합니다. Supervisor가 사용자의 질문을 해석해 작업을 동적으로 분배하고 조율합니다.
   - **Why it's important**: 단일 에이전트 대비 복잡·다단계 분석에 체계적으로 대응해 답변의 깊이와 신뢰성을 향상합니다.
-  - **How it works**: LangGraph의 StateGraph로 각 에이전트를 노드로 정의합니다. Supervisor는 LLM Tool-Calling으로 다음 Worker를 결정하고 `add_conditional_edges` 로 흐름을 제어합니다.
+  - **How it works**: LangGraph의 StateGraph로 각 에이전트를 노드로 정의합니다. Supervisor는 LLM의 ROUTE 텍스트 출력으로 다음 Worker를 결정하고 `add_conditional_edges` 로 흐름을 제어합니다.
 
 - **동적 RAG 소스 관리 (Dynamic RAG Source Management)**
   - **What it does**: Streamlit 사이드바에서 사용자가 참고 PDF를 업로드하면 즉시 RAG 파이프라인에 반영됩니다.
   - **Why it's important**: 최신/비공개 문서를 분석에 활용해 확장성과 개인화를 높입니다.
-  - **How it works**: 업로드 파일은 `data/` 폴더에 저장됩니다. 파일 추가 시 캐시가 초기화되고 앱이 재실행되어 `build_rag_pipeline` 이 최신 파일로 VectorStore를 재구축합니다.
+  - **How it works**: 업로드 파일은 `data/` 폴더에 저장됩니다. 파일 추가 시 캐시가 초기화되고 앱이 재실행되어 `build_rag_pipeline`이 공유 PyMuPDF 로더로 PDF를 읽고 FAISS 인덱스를 재구축합니다.
 
 - **실시간 작업 과정 시각화 (Real-time Process Visualization)**
   - **What it does**: Streamlit 네이티브 컴포넌트(`st.info`, `st.write`)를 통해 "Researcher 정보 수집 중", "Analyst 보고서 작성 중" 등 현재 진행 상황을 실시간 표시합니다.
   - **Why it's important**: 투명한 진행 공유로 신뢰를 높이고 대기 시간 UX를 개선합니다.
   - **How it works**: LangGraph 스트리밍 출력을 수신해 노드 활성화 시 네이티브 컴포넌트로 진행 상황을 갱신합니다.
+
+- **외부 에이전트용 PDF 검색**
+  - BOK CLI는 API 설정 없이 로컬 PDF의 본문·파일명·물리적 페이지를 JSON으로 반환합니다.
+  - 로그인된 에이전트가 검색 결과를 해석하고 근거를 인용합니다. CLI에는 `analyze` 명령이 없습니다.
 
 # User Experience
 
@@ -29,11 +33,18 @@
 - **경제 전문 기자(이하나, 41세)**: 최신 경제 이벤트에 대해 사실 기반 정보와 전문가 수준 분석을 신속히 필요로 합니다.
 
 ## Key User Flows
+
+기존 앱 경로입니다. 채팅·임베딩 API 설정이 필요합니다.
+
 - (선택) 사이드바의 "파일 업로드" 버튼으로 분석 참고 PDF 업로드
 - 업로드 성공 및 RAG 시스템 업데이트 메시지 표시
 - 메인 채팅창에 "업로드한 보고서를 바탕으로 최근 금리 동결의 영향을 분석해줘" 등의 질문 입력
 - "분석팀이 작업을 시작합니다..." 상태 메시지와 단계별 실시간 진행 표시
 - 최종 분석 결과가 채팅창에 텍스트로 출력
+
+외부 에이전트 경로에서는 저장소 루트에서 `.venv/bin/python -m bok_cli search "생산성" --limit 5`를 실행하고,
+반환된 `ok`, `status`, `results`를 확인한 뒤 로그인된 에이전트가 파일명·PDF 페이지를 인용하여 분석합니다.
+사용 예시는 docs/AGENT_GUIDE.md에 있습니다. BOK는 에이전트의 로그인 토큰을 읽지 않습니다.
 
 ## UI/UX Considerations
 - **Streamlit 네이티브 컴포넌트 우선**: CSS 의존성 제거로 안정적이고 일관된 인터페이스 제공
@@ -50,22 +61,30 @@
 ## System Components
 - **Frontend**: Streamlit
 - **Orchestration**: LangGraph
-- **LLM Service**: Azure OpenAI Service (gpt-4o)
-- **Vector Database**: FAISS (In-memory, 동적 재생성)
+- **LLM Service**: OpenAI·Claude·OpenAI 호환 API 중 선택. 모델 이름·키 직접 지정
+- **Embeddings**: OpenAI·OpenAI 호환 API 중 선택. 채팅과 별도 설정
+- **Local CLI**: `bok_cli.py`와 `bok_documents.py`. PyMuPDF 텍스트 검색, API·FAISS 불필요
+- **Vector Database**: 기존 앱의 로컬 FAISS 인덱스 및 파일 캐시
 - **File Storage**: Local `data/` directory
 - **Web Search API**: DDGS
 
 ## Data Models
-- **AgentState**: `TypedDict` 로 정의되며 에이전트 간 대화 기록(`messages`)과 LangGraph 상태를 관리
+- **AgentState**: `TypedDict`로 대화 기록(`messages`), 요청별 시작 시각(`started_at`), Supervisor 판단 횟수(`iterations`) 관리
+- **CLI 응답**: `ok`, `status`, `method`, `query`, `results`. 각 결과에 `source`, `page`, `text`, `published_at=null` 포함
 
 ## APIs and Integrations
-- `langchain-azure-openai` 로 Azure OpenAI Chat Completions/Embeddings 연동
-- `ddgs` 직접 호출로 외부 웹 검색 통합
-- `glob`, `PyMuPDFLoader` 로 로컬 PDF를 동적으로 로드
+- `langchain-openai`의 ChatOpenAI·OpenAIEmbeddings, `langchain-anthropic`의 ChatAnthropic 사용
+- `LLM_PROVIDER`: `openai`(기본), `claude`, `openai_compatible`
+- `LLM_MODEL`, `LLM_API_KEY`: 필수. `LLM_BASE_URL`은 호환 API에서 필수이며 그 외 비우면 제공자 공식 주소 사용
+- `EMBEDDING_PROVIDER`: `openai`(기본), `openai_compatible`. Claude 임베딩은 지원하지 않음
+- `EMBEDDING_MODEL`, `EMBEDDING_API_KEY`: 채팅과 별도로 필수. 호환 API는 `EMBEDDING_BASE_URL`도 필수
+- 임베딩 제공자·모델·주소가 바뀌면 FAISS 캐시 무효화. 호환 서버는 사용하는 도구 호출·임베딩 기능을 지원해야 함
+- `ddgs`로 웹 검색. `KOSIS_API_KEY`가 있으면 통계 목록 조회 도구 등록
+- PyMuPDF 기반 공유 로더로 로컬 PDF 읽기. CLI는 앱 설정 및 네트워크와 독립적으로 실행
 
 ## Infrastructure Requirements
-- Python 3.9+
-- `.env` 기반 환경 변수 관리 (API 키, 엔드포인트 등)
+- 기존 런타임 기준은 Python 3.9+. 최소 버전별 호환성은 이번 작업에서 미검증
+- 기존 앱은 환경변수로 모델·키·API 주소 설정. CLI 검색에는 `.env`가 필요하지 않음
 
 - 런타임/패키지 매니저: uv 권장
   - 공식 문서: https://docs.astral.sh/uv/guides/install-python/
@@ -76,33 +95,49 @@
 
 # Development Roadmap
 
-## MVP (Minimum Viable Product)
-- Supervisor, Researcher, Analyst 3개 에이전트 협업으로 단일 질문 분석 핵심 기능
-- `data/` 폴더 PDF를 동적으로 로드하는 RAG 파이프라인 구축
-- Streamlit 채팅 UI, 파일 업로드, 실시간 상태 업데이트 구현
+2026-11-02 기준입니다. 구현 완료와 실환경 검증 완료를 구분합니다.
+상세 검증 범위는 .hxsk/SPEC.md의 Verification Status를 따릅니다.
 
-## Future Enhancements (Phase 2)
-- 차트 생성 에이전트 추가: 수치 데이터 시각화 후 보고서 포함
-- 사용자 피드백: 답변에 "좋아요/싫어요" 및 의견 수집 기능
-- 데이터 소스 확장: 통계청 KOSIS 등 공공 데이터 포털 연동
-- 답변 출처 명시: 문서명·페이지·URL 등을 결과와 함께 제공
+| 단계 | 구현 상태 | 검증 상태 |
+|---|---|---|
+| MVP | 3개 에이전트, PDF 업로드·RAG, Streamlit 채팅·진행 표시 구현 | 근거 전달·요청별 한도·응답 표시 테스트 통과. 실제 모델을 쓰는 전체 흐름은 미검증 |
+| Phase 2 | 출처 표시, 피드백·통계, Plotly 차트 처리 노드, KOSIS 목록 조회 구현 | KOSIS 실연동 및 피드백·차트 전체 사용자 흐름은 미검증 |
+| Phase 3 | 대화 맥락, 멀티시리즈 차트, PDF 페이지 뷰어, Markdown 보고서 다운로드 구현 | 대화 전달 테스트 통과. 실제 모델부터 뷰어·다운로드까지의 전체 흐름은 미검증 |
+| 실행 안정화·제공자 전환 | 실행 결함 수정, OpenAI·Claude·호환 API 선택 및 임베딩 설정 분리 완료 | 모의 모델·HTTP 전송으로 검증. 실제 모델·임베딩 API는 미호출 |
+| 외부 에이전트 경로 | PDF 검색 JSON CLI 및 가이드 완료 | 로컬 PDF 검색·오류 처리 검증. 로그인된 Codex로 검색·인용 분석 수행. Claude Code 추론은 미실행 |
+
+기존 테스트 30개는 네트워크 차단 상태에서 통과했습니다. 가이드의 명령 구문·내부 링크·공식 문서 링크도 확인했습니다.
+실제 API 기반 분석 품질과 DuckDuckGo 외부 연동은 이번 작업에서 검증하지 않았습니다.
+
+## 미구현·보류
+
+- KOSIS 수치 시계열 조회·분석 연결은 미구현입니다. 현재 도구는 목록의 제목·기관·기간을 반환합니다.
+- MCP, 새 서버·새 UI, CLI의 OCR·의미 검색 확장은 현재 합의한 최소 범위에 포함하지 않습니다.
+- `llm-trader`, `tossquant-local-poc`, `trade-dashboard`, `quantrade-ng`, `QuanTrade`의 기능 통합·중복 정리는 보류합니다.
+- 대용량 PDF의 백그라운드 처리는 후속 범위로 확정하지 않았습니다.
+
+합의한 최소 범위는 완료했습니다. 추가 기능은 실제 사용에서 확인된 요구를 바탕으로 결정합니다.
 
 # Logical Dependency Chain
-- **Foundation(기반 구축)**: Azure OpenAI 연동 및 `requirements.txt` 환경 설정(uv 기반 설치) → `build_rag_pipeline` 로 `data/` 스캔해 FAISS 벡터 DB 구축
+- **Foundation(기반 구축)**: 채팅·임베딩 제공자 설정 및 `requirements.txt` 환경 구성 → `build_rag_pipeline` 로 `data/` 스캔해 FAISS 벡터 DB 구축
 - **Agent Core(에이전트 구현)**: `AgentState` 정의, `create_agent` 로 Researcher/Analyst 구현
 - **Orchestration(워크플로우 설계)**: Supervisor 구현, `StateGraph` 로 연결 및 `create_graph` 완성
 - **Frontend(UI 개발)**: 컴파일된 LangGraph 에이전트와 상호작용하는 Streamlit `main` 개발 (파일 업로드, RAG 업데이트 트리거, 실시간 상태 시각화 포함)
 
+- **외부 에이전트 경로**: PyMuPDF 로더 → BOK CLI 텍스트 검색 JSON → 로그인된 에이전트의 근거 해석·인용. 앱의 FAISS·API 설정과 독립적
+
 # Risks and Mitigations
 - **Risk: LLM 환각(Hallucination)**
-  - Mitigation: 근거를 신뢰 높은 RAG 소스에 한정. Researcher/Analyst 프롬프트로 데이터 내 근거 기반 분석을 강제
+  - Mitigation: 출처를 표시하고 프롬프트로 근거 기반 분석을 요구. 이것이 정확성을 보장하지는 않으며 문서 시점·주장·인용 페이지 확인이 필요
 - **Risk: 대용량 파일 처리 문제**
-  - Mitigation: MVP에선 제한 없음. Phase 2에 파일 크기 제한(예: 50MB) 또는 백그라운드 처리 도입
+  - Mitigation: CLI는 매번 폴더의 PDF를 읽고 페이지 전체 본문을 반환하므로 파일 증가에 따라 시간·출력이 커질 수 있음. OCR·백그라운드 처리는 미구현
 - **Risk: 복잡 질문에 대한 작업 계획 실패**
-  - Mitigation: Supervisor 시스템 프롬프트에 역할·책임과 일반 순서(Researcher → Analyst) 명시, 향후 사용자 피드백 반영 기능 추가
+  - Mitigation: Supervisor 시스템 프롬프트에 역할·책임과 일반 순서(Researcher → Analyst) 명시, 요청별 반복·시간 한도로 제한. 시간 한도는 Supervisor 재실행 시 확인하며 진행 중인 외부 호출을 중단하지 않음
 
 # Appendix
 - **과제 평가 기준**: Prompt Engineering, LangChain/LangGraph, RAG, Streamlit 항목 충족을 목표로 설계/구현
 - **참고 자료**: LangChain·LangGraph 공식 문서, 제공된 학습용 노트북(`langgraph.ipynb`, `agent_supervisor_manual.md`, `04-Retriever.ipynb` 등)
+
+*Last updated: 2026-11-02*
 
 </PRD>
