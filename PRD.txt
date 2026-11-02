@@ -64,6 +64,7 @@
 - **LLM Service**: OpenAI·Claude·OpenAI 호환 API 중 선택. 모델 이름·키 직접 지정
 - **Embeddings**: OpenAI·OpenAI 호환 API 중 선택. 채팅과 별도 설정
 - **Local CLI**: `bok_cli.py`와 `bok_documents.py`. PyMuPDF 텍스트 검색, API·FAISS 불필요
+- **Local Server**: 선택 설치한 공식 MCP SDK로 검색 도구·HTTP API·정적 웹 UI 제공. 별도 가상환경 사용
 - **Vector Database**: 기존 앱의 로컬 FAISS 인덱스 및 파일 캐시
 - **File Storage**: Local `data/` directory
 - **Web Search API**: DDGS
@@ -105,6 +106,7 @@
 | Phase 3 | 대화 맥락, 멀티시리즈 차트, PDF 페이지 뷰어, Markdown 보고서 다운로드 구현 | 대화 전달 테스트 통과. 실제 모델부터 뷰어·다운로드까지의 전체 흐름은 미검증 |
 | 실행 안정화·제공자 전환 | 실행 결함 수정, OpenAI·Claude·호환 API 선택 및 임베딩 설정 분리 완료 | 모의 모델·HTTP 전송으로 검증. 실제 모델·임베딩 API는 미호출 |
 | 외부 에이전트 경로 | PDF 검색 JSON CLI 및 가이드 완료 | 로컬 PDF 검색·오류 처리 검증. 로그인된 Codex로 검색·인용 분석 수행. Claude Code 추론은 미실행 |
+| 로컬 MCP·서버·UI | SDK 선택 설치, HTTP·stdio 도구, 검색 API·인용 복사 화면 구현 | 별도 환경의 통합 테스트 7개 및 브라우저 검색·빈 결과·문서 오류·모바일 확인. 실제 에이전트 등록·모델 호출은 미실행 |
 
 기존 테스트 30개는 네트워크 차단 상태에서 통과했습니다. 가이드의 명령 구문·내부 링크·공식 문서 링크도 확인했습니다.
 실제 API 기반 분석 품질과 DuckDuckGo 외부 연동은 이번 작업에서 검증하지 않았습니다.
@@ -112,8 +114,8 @@
 ## 미구현·보류
 
 - KOSIS 수치 시계열 조회·분석 연결은 미구현입니다. 현재 도구는 목록의 제목·기관·기간을 반환합니다.
-- MCP, 새 서버·새 UI, CLI의 OCR·의미 검색 확장은 현재 합의한 최소 범위에 포함하지 않습니다.
-- `llm-trader`, `tossquant-local-poc`, `trade-dashboard`, `quantrade-ng`, `QuanTrade`의 기능 통합·중복 정리는 보류합니다.
+- 로컬 서버의 공개 배포·업로드·분석 모델 내장과 CLI의 OCR·의미 검색 확장은 범위에 포함하지 않습니다.
+- 다른 레포의 기능 통합은 보류합니다. 구형 QuanTrade와 trade-dashboard는 별도 사용자 승인으로 GitHub 아카이브했으며 배포 서비스는 변경하지 않았습니다.
 - 대용량 PDF의 백그라운드 처리는 후속 범위로 확정하지 않았습니다.
 
 합의한 최소 범위는 완료했습니다. 추가 기능은 실제 사용에서 확인된 요구를 바탕으로 결정합니다.

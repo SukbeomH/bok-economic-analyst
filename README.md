@@ -42,7 +42,55 @@ Streamlit 화면의 응답 수집을 검증합니다. 실제 모델 API는 호�
 Supervisor가 다시 실행될 때 확인합니다. 진행 중인 외부 API 호출을 중단하는 제한은 아닙니다.
 기존 환경에서 `APP_GRAPH_VERSION`을 지정했다면 `5`로 갱신하고 앱을 다시 실행하세요.
 
-## 프로젝트 개요
+## 로컬 MCP·검색 서버·웹 UI
+
+기존 앱과 분리된 Python 3.12 환경에서 저장소 루트를 기준으로 실행합니다.
+기존 `.venv`와 `requirements.txt`는 변경할 필요가 없습니다.
+
+```bash
+uv venv .venv-server --python 3.12
+uv pip install --python .venv-server/bin/python -r requirements-server.txt
+.venv-server/bin/python -m bok_server --port 8765
+```
+
+| 경로 | 용도 |
+|---|---|
+| `http://127.0.0.1:8765/` | PDF 검색·본문 확인·파일명과 페이지 인용 복사 |
+| `http://127.0.0.1:8765/api/search?query=생산성&limit=5` | 기존 CLI와 같은 검색 JSON |
+| `http://127.0.0.1:8765/mcp` | MCP Streamable HTTP. 도구는 `search_pdf(query, limit=5)` 하나 |
+
+기본 검색 폴더는 저장소의 `data/`입니다. 다른 폴더는 서버 시작 시 `--data-dir`로 지정합니다.
+도구·API는 폴더나 파일 경로를 받지 않습니다. 검색어는 1~500자, 결과 수는 1~20개 페이지입니다.
+HTTP 입력·PDF 오류는 상태 코드 400의 `invalid_input` JSON이며, MCP는 도구 오류로 반환합니다.
+`empty_corpus`, `no_matches`는 성공한 요청의 빈 결과 상태입니다.
+
+서버 실행 후 원하는 에이전트에서 등록합니다. 다음 명령은 해당 에이전트의 MCP 설정을 변경합니다.
+
+```bash
+codex mcp add bok --url http://127.0.0.1:8765/mcp
+# Claude Code를 사용하는 경우
+claude mcp add --transport http bok http://127.0.0.1:8765/mcp
+```
+
+HTTP 대신 에이전트가 서버를 직접 시작하는 stdio를 사용할 수도 있습니다.
+아래 경로는 현재 작업 경로이므로 다른 위치에 복제했다면 바꾸세요. HTTP와 stdio 중 하나만 등록합니다.
+
+```bash
+codex mcp add bok -- /Users/sukbeom/Documents/bok-analysis/.venv-server/bin/python \
+  /Users/sukbeom/Documents/bok-analysis/bok_server.py --transport stdio
+```
+
+MCP·API·웹 UI는 모델을 호출하거나 로그인 정보를 읽지 않습니다. 분석은 연결된 에이전트가 수행합니다.
+서버는 `127.0.0.1`에만 열고 동일 출처의 브라우저 요청만 허용합니다. 공개 배포·업로드·DB는 제공하지 않습니다.
+PDF 검색은 직렬 처리하므로 큰 폴더에서는 다른 요청도 기다릴 수 있습니다. 종료는 실행 터미널에서 Ctrl+C입니다.
+
+선택 서버의 실제 HTTP·MCP 통합 테스트는 별도로 실행합니다. 모델 API는 호출하지 않습니다.
+
+```bash
+.venv-server/bin/python -m unittest discover -s tests_server -v
+```
+
+## 기존 Streamlit 앱
 
 AI 에이전트 팀(Supervisor, Researcher, Analyst)이 협업하여 경제 질문에 대한 심층 분석을 제공하는 Streamlit 웹 애플리케이션입니다. 사용자가 PDF 문서를 업로드하고 자연어로 질문하면, RAG 파이프라인과 웹 검색을 결합하여 근거 기반 분석 보고서를 생성합니다.
 

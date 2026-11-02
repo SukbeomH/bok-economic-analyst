@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BOK 문서 검색</title>
+  <style>
+    :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #192b40; background: #f6f8fb; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    main { max-width: 1000px; margin: 0 auto; padding: 56px 28px 64px; }
+    h1 { font-size: 30px; letter-spacing: -.04em; margin: 0 0 12px; }
+    h2 { font-size: 19px; margin: 0; }
+    p { line-height: 1.7; }
+    .intro { color: #53657b; margin: 0 0 28px; }
+    form { display: grid; grid-template-columns: 1fr 110px auto; gap: 14px; align-items: end; padding: 24px; background: white; border: 1px solid #dce3ed; border-radius: 12px; }
+    label { display: block; font-weight: 600; font-size: 14px; margin-bottom: 8px; }
+    input, button { font: inherit; min-height: 44px; border-radius: 6px; }
+    input { width: 100%; padding: 10px 12px; border: 1px solid #b8c6d8; background: white; color: inherit; }
+    button { padding: 10px 20px; border: 1px solid #165cbb; background: #165cbb; color: white; cursor: pointer; font-weight: 600; }
+    button:hover { background: #104a99; }
+    button:disabled { opacity: .65; cursor: wait; }
+    :focus-visible { outline: 3px solid #82b5fa; outline-offset: 3px; }
+    .hint { color: #53657b; font-size: 13px; margin: 12px 0 28px; }
+    .results-heading { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+    #status { color: #53657b; line-height: 1.7; margin: 0 0 20px; }
+    #status.error { color: #a02525; }
+    #results { display: grid; gap: 14px; }
+    details { background: white; border: 1px solid #dce3ed; border-radius: 10px; overflow: hidden; }
+    summary { padding: 20px; cursor: pointer; line-height: 1.65; overflow-wrap: anywhere; }
+    .page { display: block; color: #53657b; font-size: 13px; margin: 4px 0 0 18px; }
+    .evidence { padding: 0 20px 22px; }
+    .citation { display: flex; align-items: center; gap: 16px; padding: 14px 0; border-top: 1px solid #e7ecf3; }
+    .citation span { flex: 1; color: #53657b; font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
+    .copy { flex-shrink: 0; font-size: 13px; padding: 8px 12px; background: white; color: #165cbb; }
+    .copy:hover { background: #edf4ff; }
+    pre { font: inherit; font-size: 15px; line-height: 1.9; white-space: pre-wrap; overflow-wrap: anywhere; margin: 12px 0 0; }
+    footer { margin-top: 36px; border-top: 1px solid #dce3ed; padding-top: 18px; font-size: 13px; color: #53657b; line-height: 1.8; }
+    @media (max-width: 600px) {
+      main { padding: 28px 16px 40px; }
+      h1 { font-size: 26px; }
+      form { grid-template-columns: 1fr 100px; padding: 18px; }
+      form > button { grid-column: 1 / -1; }
+      .citation { flex-direction: column; align-items: start; gap: 8px; }
+      summary { padding: 16px; }
+      .evidence { padding: 0 16px 18px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>BOK 문서 검색</h1>
+    <p class="intro">로컬 PDF에서 근거를 찾고, 파일명과 페이지를 확인하세요.</p>
+    <form id="search-form">
+      <div>
+        <label for="query">검색어</label>
+        <input id="query" name="query" placeholder="예: 생산성" maxlength="500" required>
+      </div>
+      <div>
+        <label for="limit">결과 수</label>
+        <input id="limit" name="limit" type="number" min="1" max="20" value="5" required>
+      </div>
+      <button id="search-button" type="submit">검색</button>
+    </form>
+    <p class="hint">여러 검색어는 하나 이상 일치하는 페이지를 찾습니다. 스캔 문서의 문자 인식은 지원하지 않습니다.</p>
+    <section aria-labelledby="results-title">
+      <div class="results-heading"><h2 id="results-title">검색 결과</h2></div>
+      <p id="status" role="status" aria-live="polite">검색어를 입력하면 해당 페이지의 본문과 인용 정보를 표시합니다.</p>
+      <div id="results"></div>
+    </section>
+    <footer>페이지 번호는 PDF의 첫 장부터 셉니다. 문서에 인쇄된 쪽 번호와 다를 수 있습니다.<br>자료의 시점을 확인하고, 분석은 연결된 에이전트에 요청하세요.</footer>
+  </main>
+  <script>
+    const form = document.getElementById('search-form');
+    const query = document.getElementById('query');
+    const limit = document.getElementById('limit');
+    const status = document.getElementById('status');
+    const results = document.getElementById('results');
+    const button = document.getElementById('search-button');
+
+    function element(tag, text, className) {
+      const node = document.createElement(tag);
+      if (text !== undefined) node.textContent = text;
+      if (className) node.className = className;
+      return node;
+    }
+
+    function renderPage(page, index) {
+      const detail = element('details');
+      detail.open = index === 0;
+      const summary = element('summary', page.source);
+      summary.append(element('span', `PDF p.${page.page}`, 'page'));
+      const body = element('div', undefined, 'evidence');
+      const citation = `[${page.source}, PDF p.${page.page}]`;
+      const citationRow = element('div', undefined, 'citation');
+      const copy = element('button', '인용 복사', 'copy');
+      copy.type = 'button';
+      copy.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(citation);
+          copy.textContent = '복사됨';
+        } catch {
+          status.textContent = '복사하지 못했습니다. 표시된 인용문을 직접 선택해 복사하세요.';
+        }
+      });
+      citationRow.append(element('span', citation), copy);
+      body.append(citationRow, element('pre', page.text));
+      detail.append(summary, body);
+      return detail;
+    }
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (!query.value.trim()) {
+        query.setCustomValidity('검색어를 입력하세요.');
+        query.reportValidity();
+        return;
+      }
+      button.disabled = true;
+      button.textContent = '검색 중…';
+      status.className = '';
+      status.textContent = 'PDF를 검색하고 있습니다.';
+      results.replaceChildren();
+      try {
+        const params = new URLSearchParams({query: query.value.trim(), limit: limit.value});
+        const response = await fetch(`/api/search?${params}`, {cache: 'no-store'});
+        const data = await response.json();
+        if (!response.ok || !data.ok) throw new Error(data.error?.message || '검색 요청을 처리하지 못했습니다.');
+        if (data.status === 'empty_corpus') {
+          status.textContent = '검색할 PDF가 없습니다. 서버의 문서 폴더에 PDF를 넣고 다시 검색하세요.';
+        } else if (data.status === 'no_matches') {
+          status.textContent = '일치하는 페이지가 없습니다. 검색어를 바꿔보세요.';
+        } else if (data.status === 'ok') {
+          status.textContent = `“${data.query}” 검색 결과 ${data.results.length}개 페이지입니다. 검색 순위는 신뢰도를 뜻하지 않습니다.`;
+          results.replaceChildren(...data.results.map(renderPage));
+        } else {
+          throw new Error('검색 상태를 확인할 수 없습니다.');
+        }
+      } catch (error) {
+        status.className = 'error';
+        status.textContent = `검색 실패: ${error.message}`;
+      } finally {
+        button.disabled = false;
+        button.textContent = '검색';
+      }
+    });
+    query.addEventListener('input', () => query.setCustomValidity(''));
+  </script>
+</body>
+</html>

@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 import sys
 
-from bok_documents import search_documents
+from bok_documents import search_documents, search_result_payload
 
 
 class _Parser(argparse.ArgumentParser):
@@ -31,15 +31,7 @@ def main(argv=None) -> int:
         print(json.dumps({"ok": False, "error": {"code": "invalid_input", "message": str(error)}},
                          ensure_ascii=False), file=sys.stderr)
         return 2
-    payload = {
-        "ok": True,
-        "status": result.status,
-        "method": result.method,
-        "query": result.query,
-        "results": [{"source": page.source, "page": page.page, "text": page.text,
-                     "published_at": None} for page in result.results],
-    }
-    print(json.dumps(payload, ensure_ascii=False))
+    print(json.dumps(search_result_payload(result), ensure_ascii=False))
     return 0
 
 

@@ -26,6 +26,18 @@ class SearchResult:
     method: Literal["text"] = "text"
 
 
+def search_result_payload(result: SearchResult) -> dict:
+    """Serialize a search outcome for CLI, HTTP, and MCP callers."""
+    return {
+        "ok": True,
+        "status": result.status,
+        "method": result.method,
+        "query": result.query,
+        "results": [{"source": page.source, "page": page.page, "text": page.text,
+                     "published_at": None} for page in result.results],
+    }
+
+
 def load_pdf_pages(data_dir: Path) -> tuple[PdfPage, ...]:
     """Read all PDF pages in a directory, failing if any PDF cannot be read."""
     if not data_dir.is_dir():

@@ -21,7 +21,7 @@ LangGraph의 Supervisor·Researcher·Analyst로 분석합니다. 외부 에이�
 
 - 실시간 주가·환율 스트리밍, 사용자 인증·권한 관리, 다국어·모바일 앱은 범위 밖입니다.
 - 별도 벡터 DB 서버를 운영하지 않습니다. 기존 앱은 로컬 FAISS 캐시를 사용합니다.
-- MCP, 새 서버·새 UI, 다른 레포의 기능 통합·중복 정리는 보류합니다.
+- 다른 레포의 기능 통합은 보류합니다. 로컬 MCP·검색 서버·웹 UI는 선택 설치로 제공합니다.
 - CLI의 OCR·의미 검색 확장은 현재 합의 범위에 포함하지 않습니다.
 
 ## Execution Paths and Configuration
@@ -29,7 +29,8 @@ LangGraph의 Supervisor·Researcher·Analyst로 분석합니다. 외부 에이�
 | 경로 | 검색·분석 방식 | 설정 |
 |---|---|---|
 | 기존 Streamlit 앱 | FAISS 의미 검색, 내부 LangGraph 분석팀 | 채팅·임베딩 API 설정 필요 |
-| 외부 Codex·Claude Code | BOK CLI 텍스트 검색, 로그인된 에이전트가 분석 | BOK 모델 API 설정 불필요 |
+| 외부 Codex·Claude Code | BOK CLI 또는 MCP 텍스트 검색, 로그인된 에이전트가 분석 | BOK 모델 API 설정 불필요 |
+| 로컬 웹 UI | 검색·본문 확인·인용 복사 | 서버 선택 설치 필요. 분석 모델은 내장하지 않음 |
 
 기존 앱의 제공자 설정은 다음과 같습니다. 모델 이름과 키는 사용자가 직접 지정합니다.
 
@@ -45,6 +46,20 @@ LangGraph의 Supervisor·Researcher·Analyst로 분석합니다. 외부 에이�
 Claude는 이 앱의 임베딩 제공자로 지원하지 않습니다. 호환 서버는 사용하는 도구 호출·임베딩
 기능을 지원해야 합니다. 임베딩 제공자·모델·주소가 바뀌면 캐시를 무효화합니다.
 BOK는 Codex·Claude Code의 로그인 토큰을 API 키로 읽거나 전환하지 않습니다.
+
+## Local MCP·HTTP·Web UI
+
+기존 PDF 검색 코어를 공유하는 로컬 서버를 제공합니다. MCP 도구, HTTP 검색 API, 정적 검색 UI를
+서버 하나로 제공하고 분석 모델·업로드·DB·공개 배포는 추가하지 않습니다. 기존 CLI 계약은 유지합니다.
+공식 SDK는 승인받은 선택 의존성 `requirements-server.txt`와 별도 `.venv-server`로 분리합니다.
+Python 3.12에서 검증했습니다. 실행 방법은 [README](../README.md#로컬-mcp검색-서버웹-ui),
+범위와 검증 기록은 [구현 계획](PLAN.md)에 있습니다.
+
+- HTTP·UI는 `127.0.0.1:8765`에 열며 MCP 경로는 `/mcp`입니다. stdio도 지원합니다.
+- MCP `search_pdf`와 HTTP `/api/search`는 `query`, `limit`만 받습니다. 검색 폴더는 시작 때 고정합니다.
+- 검색어는 1~500자, 결과 수는 1~20개입니다. JSON 성공 결과는 CLI와 같습니다.
+- 입력·PDF 오류는 HTTP 400의 `invalid_input` JSON, MCP에서는 도구 오류로 반환합니다.
+- 단일 프로세스에서 직렬 검색하며 모든 HTTP 경로에 Host·Origin 검증을 적용합니다.
 
 ## Runtime Constraints
 
@@ -66,6 +81,7 @@ BOK는 Codex·Claude Code의 로그인 토큰을 API 키로 읽거나 전환하�
 | 실행 안정화 | 분석 근거 전달, 요청별 실행 한도, 최종 응답 표시, 문서가 없을 때 가상 PDF 생성 제거 |
 | 제공자 전환 | OpenAI·Claude·호환 API 채팅, 독립적인 임베딩 설정·캐시 식별 |
 | 외부 에이전트 사용 | 로컬 PDF 검색 JSON CLI 및 로그인된 에이전트용 가이드 |
+| 로컬 서버 | 공식 MCP SDK의 HTTP·stdio 검색 도구, 검색 API, 정적 검색·인용 복사 UI |
 
 차트는 Analyst의 `chart_data`를 Plotly로 변환하는 처리 노드입니다. 별도 LLM 에이전트가 아닙니다.
 KOSIS는 목록의 제목·기관·기간을 반환하며 수치 시계열 수집은 구현하지 않았습니다.
@@ -88,9 +104,10 @@ KOSIS는 목록의 제목·기관·기간을 반환하며 수치 시계열 수�
 | 검증 완료 | 네트워크 차단·모델 대체 상태에서 기존 테스트 30개 통과. PDF CLI, 근거 전달·실행 한도·최종 응답, 제공자 요청 형식·임베딩 캐시 검증 |
 | 실제 사용 확인 | 로그인된 Codex에서 로컬 CLI로 서비스 산업 생산성 PDF를 검색하고 파일명·PDF 페이지를 인용한 분석 수행 |
 | 문서 검증 완료 | 가이드의 셸 예시 구문·링크와 설치된 Codex·Claude Code의 옵션 확인 |
-| 미검증 | 실제 제공자·임베딩 API의 응답 및 품질, DuckDuckGo·KOSIS 실연동, 전체 Streamlit 사용자 흐름, Claude Code 로그인 기반 추론 |
+| 미검증 | 실제 제공자·임베딩 API의 응답 및 품질, DuckDuckGo·KOSIS 실연동, 전체 Streamlit 사용자 흐름, Claude Code 로그인 기반 추론, Codex·Claude Code의 MCP 등록·모델을 통한 도구 호출 |
 | 미구현 | KOSIS 수치 시계열 수집·분석 연결 |
-| 보류 | MCP, 새 서버·새 UI, 다른 레포 통합·정리 |
+| 서버 검증 완료 | 별도 환경의 HTTP·MCP 통합 테스트 7개 통과. 실제 브라우저 검색·인용 복사·빈 결과·문서 오류·모바일 표시 확인 |
+| 보류 | 다른 레포 기능 통합 |
 
 Streamlit의 PDF 업로드부터 실제 모델 분석·차트·뷰어·다운로드·피드백 저장까지의 전체 흐름은
 실환경 검증 완료로 표시하지 않습니다. 테스트 통과가 분석 품질이나 모든 제공자의 호환성을 보장하지는 않습니다.
