@@ -29,7 +29,7 @@
 
 | 설정 그룹 | 주요 항목 |
 |-----------|----------|
-| Azure OpenAI | `AOAI_ENDPOINT`, `AOAI_API_KEY`, `AOAI_DEPLOY_GPT4O`, `AOAI_DEPLOY_EMBED_3_LARGE` |
+| 모델 API | `LLM_PROVIDER`, `LLM_MODEL`, `LLM_API_KEY`, `LLM_BASE_URL`, `EMBEDDING_PROVIDER`, `EMBEDDING_MODEL`, `EMBEDDING_API_KEY`, `EMBEDDING_BASE_URL` |
 | RAG | `RAG_SEARCH_STRATEGY`, `RAG_K`, `RAG_FETCH_K`, `RAG_LAMBDA_MULT`, `RAG_SCORE_THRESHOLD`, `RAG_USE_COMPRESSION` |
 | 앱 동작 | `MAX_ITERATIONS`, `TIMEOUT_SECONDS`, `MAX_HISTORY_TURNS`, `DATA_DIR` |
 | 선택 | `KOSIS_API_KEY`, `DEBUG_MODE`, `USE_CACHE` |
@@ -39,12 +39,12 @@
 ```python
 validate_required_settings() -> Dict[str, str]
 ```
-필수 Azure OpenAI 설정의 존재 여부를 검증. 누락 항목을 `{"항목명": "설명"}` 형태로 반환.
+선택한 제공자의 모델·키·호환 API 주소를 검증. 임베딩 제공자는 Claude를 지원하지 않음. 누락 항목을 `{"항목명": "설명"}` 형태로 반환.
 
 ```python
 get_all_settings() -> Dict[str, Any]
 ```
-전체 설정값을 딕셔너리로 반환.
+설정값을 딕셔너리로 반환. API 키는 값 대신 설정 여부만 포함.
 
 ```python
 get_environment_info() -> Dict[str, Any]
@@ -55,19 +55,19 @@ Python 버전, 플랫폼, 파일 존재 여부, 유효성 검증 결과를 반�
 
 ## core.model_factory
 
-Azure OpenAI 모델 인스턴스의 생성과 캐싱을 관리.
+선택한 채팅·임베딩 모델 인스턴스의 생성과 캐싱을 관리. 채팅과 임베딩의 키·모델·주소는 독립적으로 사용.
 
-### `AzureModelFactory`
-
-```python
-get_chat_model(temperature: float = 0) -> AzureChatOpenAI
-```
-GPT-4o Chat 모델 인스턴스를 반환. 동일 temperature 요청 시 캐시된 인스턴스 재사용.
+### `ModelFactory`
 
 ```python
-get_embedding_model() -> AzureOpenAIEmbeddings
+get_chat_model(temperature: float = 0) -> BaseChatModel
 ```
-text-embedding-3-large 임베딩 모델 싱글턴 인스턴스를 반환.
+OpenAI·Claude·OpenAI 호환 Chat 모델 인스턴스를 반환. 동일 temperature 요청 시 캐시된 인스턴스 재사용.
+
+```python
+get_embedding_model() -> Embeddings
+```
+OpenAI 또는 호환 API의 임베딩 모델을 반환. 인스턴스별로 캐시함.
 
 ```python
 clear_cache() -> None
@@ -80,12 +80,12 @@ clear_cache() -> None
 
 PDF 로드, FAISS 벡터화, 리트리버 생성을 담당하는 RAG 파이프라인.
 
-### `RAGPipeline(model_factory: AzureModelFactory)`
+### `RAGPipeline(model_factory: ModelFactory)`
 
 ```python
 build_pipeline(cache_key: str) -> Retriever
 ```
-`data/` 폴더의 PDF를 로드하여 FAISS 인덱스를 구축하고 리트리버를 반환. `cache_key`가 동일하면 캐시된 인덱스를 재사용.
+`data/` 폴더의 PDF를 로드하여 FAISS 인덱스를 구축하고 리트리버를 반환. PDF 파일 목록·수정시각·크기, 임베딩 제공자·모델·주소와 `cache_key`가 일치하면 캐시된 인덱스를 재사용. 이전 숫자 형식 마커는 재구축.
 
 ```python
 create_mmr_retriever(vectorstore, k=5, fetch_k=20, lambda_mult=0.7) -> Retriever

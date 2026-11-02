@@ -2,6 +2,8 @@
 RAG (Retrieval-Augmented Generation) 파이프라인 모듈
 """
 import os
+import hashlib
+import json
 from pathlib import Path
 import streamlit as st
 from typing import Optional
@@ -13,13 +15,13 @@ from langchain.retrievers import ContextualCompressionRetriever
 from langchain.retrievers.document_compressors import LLMChainExtractor
 from core.config import Config
 from core.logger import logger
-from core.model_factory import AzureModelFactory
+from core.model_factory import ModelFactory
 
 
 class RAGPipeline:
     """RAG (Retrieval-Augmented Generation) 파이프라인을 관리하는 클래스"""
     
-    def __init__(self, model_factory: AzureModelFactory):
+    def __init__(self, model_factory: ModelFactory):
         self.model_factory = model_factory
         self.vectorstore = None
         self.retriever = None
@@ -112,22 +114,20 @@ class RAGPipeline:
         if not pdf_files:
             raise ValueError("PDF 문서가 없습니다. 분석할 PDF를 먼저 추가하세요.")
         embeddings = self.model_factory.get_embedding_model()
-        current_pdf_mtime = max([os.path.getmtime(f) for f in pdf_files]) if pdf_files else 0
-        
-        # 인덱스 무효화 파일 확인
+        signature = {
+            "embedding": Config.embedding_signature(),
+            "files": [(path.name, path.stat().st_mtime_ns, path.stat().st_size) for path in pdf_files],
+            "cache_key": cache_key,
+        }
+        current_signature = hashlib.sha256(json.dumps(signature, sort_keys=True).encode()).hexdigest()
         invalidation_file = os.path.join(index_path, "invalidation.txt")
         index_needs_rebuild = True
-        
         if os.path.exists(invalidation_file):
             try:
-                with open(invalidation_file, 'r') as f:
-                    stored_mtime = float(f.read().strip())
-                if stored_mtime >= current_pdf_mtime:
-                    index_needs_rebuild = False
-                    logger.info("[rag] PDF 파일 변경 없음, 기존 인덱스 사용 가능")
-            except Exception as e:
-                logger.warning("[rag] 무효화 파일 읽기 실패: %s", e)
-        
+                index_needs_rebuild = Path(invalidation_file).read_text().strip() != current_signature
+            except (OSError, UnicodeError):
+                logger.warning("[rag] 인덱스 서명을 읽을 수 없어 재구축합니다.")
+
         # 저장된 인덱스 로드 시도
         vectorstore = None
         if not index_needs_rebuild:
@@ -135,13 +135,10 @@ class RAGPipeline:
         
         if vectorstore is None:
             # 새로 빌드
-            vectorstore = self._build_new_index(pdf_files, embeddings, index_path, current_pdf_mtime, invalidation_file)
+            vectorstore = self._build_new_index(pdf_files, embeddings, index_path, current_signature, invalidation_file)
         else:
             logger.info("[rag] 기존 FAISS 인덱스 사용")
 
-        # LLM 초기화
-        llm = self.model_factory.get_chat_model()
-        
         # 검색 전략 선택
         if Config.RAG_SEARCH_STRATEGY == "mmr":
             base_retriever = self.create_mmr_retriever(
@@ -161,7 +158,7 @@ class RAGPipeline:
         
         # 컨텍스트 압축 적용
         if Config.RAG_USE_COMPRESSION:
-            retriever = self.create_compressed_retriever(base_retriever, llm)
+            retriever = self.create_compressed_retriever(base_retriever, self.model_factory.get_chat_model())
         else:
             retriever = base_retriever
         
@@ -176,8 +173,6 @@ class RAGPipeline:
         if self.vectorstore is None:
             logger.error("[rag] 벡터스토어가 초기화되지 않음")
             return None
-        
-        llm = self.model_factory.get_chat_model()
         
         # 완화된 검색 전략
         if Config.RAG_SEARCH_STRATEGY == "mmr":
@@ -200,14 +195,14 @@ class RAGPipeline:
         
         # 컨텍스트 압축 적용
         if Config.RAG_USE_COMPRESSION:
-            retriever = self.create_compressed_retriever(base_retriever, llm)
+            retriever = self.create_compressed_retriever(base_retriever, self.model_factory.get_chat_model())
         else:
             retriever = base_retriever
         
         logger.info("[rag] 완화된 리트리버 생성 완료")
         return retriever
     
-    def _build_new_index(self, pdf_files, embeddings, index_path, current_pdf_mtime, invalidation_file):
+    def _build_new_index(self, pdf_files, embeddings, index_path, current_signature, invalidation_file):
         """새로운 FAISS 인덱스를 빌드합니다."""
         logger.info("[rag] 새 인덱스 빌드 시작")
         logger.info("[rag] PDF 파일 수: %d", len(pdf_files))
@@ -241,8 +236,8 @@ class RAGPipeline:
             try:
                 os.makedirs(index_path, exist_ok=True)
                 with open(invalidation_file, 'w') as f:
-                    f.write(str(current_pdf_mtime))
-                logger.info("[rag] 무효화 파일 저장 완료: %s", current_pdf_mtime)
+                    f.write(str(current_signature))
+                logger.info("[rag] 무효화 파일 저장 완료: %s", current_signature)
             except Exception as e:
                 logger.warning("[rag] 무효화 파일 저장 실패: %s", e)
         
@@ -260,7 +255,7 @@ def build_rag_pipeline(cache_key: str):
     """
     global rag_pipeline
     if rag_pipeline is None:
-        model_factory = AzureModelFactory()
+        model_factory = ModelFactory()
         rag_pipeline = RAGPipeline(model_factory)
     
     return rag_pipeline.build_pipeline(cache_key)

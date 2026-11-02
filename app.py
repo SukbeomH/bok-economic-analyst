@@ -8,7 +8,7 @@ import time
 import streamlit as st
 from typing import TypedDict, Annotated, List
 from typing_extensions import NotRequired
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import HumanMessage, AIMessage, convert_to_messages
 
 # LangGraph 관련
 from langgraph.graph import StateGraph, END
@@ -18,7 +18,7 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.tools import Tool
 
 # 분리된 모듈들 import
-from core import Config, logger, AzureModelFactory, web_search_func, build_rag_pipeline
+from core import Config, logger, ModelFactory, web_search_func, build_rag_pipeline
 from core.citation import wrap_retriever_with_citation
 from core.state_manager import StateManager
 from utils import setup_environment, EnvironmentValidator
@@ -88,13 +88,13 @@ def agent_node(state, agent, name):
         try:
             conversation = []
             for message in state["messages"]:
-                content = message.content
+                content = message.text()
                 if not isinstance(message, HumanMessage) and content.strip().upper().startswith("ROUTE:"):
                     continue
                 speaker = message.name or message.type
                 conversation.append(f"[{speaker}]\n{content}")
             worker_input = "\n\n".join(conversation)
-            result_text = agent.invoke({"input": worker_input}).get("output", "")
+            result_text = AIMessage(content=agent.invoke({"input": worker_input}).get("output", "")).text()
 
             return {"messages": [{"content": result_text, "role": "assistant", "name": name}]}
             
@@ -342,9 +342,7 @@ def create_graph(llm, retriever):
             return {"messages": []}
 
         last_msg = messages[-1]
-        content = getattr(last_msg, "content", "") or ""
-        if isinstance(last_msg, dict):
-            content = last_msg.get("content", "")
+        content = last_msg.text()
 
         chart_data = extract_chart_data(content)
         if chart_data:
@@ -372,7 +370,7 @@ def create_graph(llm, retriever):
     def route_action(state):
         messages = state["messages"]
         last_message = messages[-1]
-        content = getattr(last_message, "content", "") or ""
+        content = last_message.text()
         
         logger.info("[route_action] 분석 중: %s", content[:100])
         
@@ -458,7 +456,7 @@ def main_chat_interface():
     try:
         # 환경 설정
         setup_environment()
-        model_factory = AzureModelFactory()
+        model_factory = ModelFactory()
 
         # 사이드바 렌더링
         uploaded_files = render_sidebar()
@@ -476,7 +474,7 @@ def main_chat_interface():
                 # LLM 초기화
                 st.write("🧠 **LLM 초기화 중...**")
                 llm = model_factory.get_chat_model()
-                st.write("✅ AzureChatOpenAI 인스턴스 생성 완료")
+                st.write(f"✅ {Config.LLM_PROVIDER} 채팅 모델 준비 완료")
                 logger.info("[init] LLM 초기화 완료")
 
                 # RAG 파이프라인 구축
@@ -491,7 +489,7 @@ def main_chat_interface():
                     except Exception:
                         return os.path.basename(path)
                 
-                key_src = Config.APP_GRAPH_VERSION + "|" + ",".join(sorted([_file_sig(p) for p in pdf_files]))
+                key_src = Config.APP_GRAPH_VERSION + "|" + Config.embedding_signature() + "|" + ",".join(sorted([_file_sig(p) for p in pdf_files]))
                 cache_key = hashlib.sha256(key_src.encode()).hexdigest()
                 
                 retriever = build_rag_pipeline(cache_key)
@@ -556,9 +554,8 @@ def main_chat_interface():
                             if node not in chunk:
                                 continue
                             st.write(label)
-                            for message in chunk[node].get("messages", []):
-                                content = message.content if hasattr(message, "content") else message["content"]
-                                content = content.strip()
+                            for message in convert_to_messages(chunk[node].get("messages", [])):
+                                content = message.text().strip()
                                 if not content or content.upper().startswith("ROUTE:"):
                                     continue
                                 if node == "supervisor":

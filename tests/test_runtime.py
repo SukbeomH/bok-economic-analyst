@@ -118,7 +118,7 @@ class Graph:
 
 app.StateManager.initialize_session_state()
 app.StateManager.set_agent_graph(Graph(), app.Config.APP_GRAPH_VERSION)
-with patch.object(app, "setup_environment"), patch.object(app, "AzureModelFactory"), \\
+with patch.object(app, "setup_environment"), patch.object(app, "ModelFactory"), \\
      patch.object(app, "render_sidebar"), \\
      patch.object(app, "render_chat_interface", return_value="question"):
     app.main_chat_interface()

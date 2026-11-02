@@ -36,9 +36,9 @@ def getting_started_interface():
     AI 한국은행 경제 분석팀을 사용하기 전에 필요한 환경을 설정해야 합니다.
     
     **필수 설정:**
-    - Azure OpenAI 서비스 계정
+    - OpenAI·Claude·OpenAI 호환 API 중 선택한 채팅 모델 및 별도 임베딩 API 설정
     - API 키 및 엔드포인트
-    - 모델 배포명
+    - 사용할 모델 이름
     
     **설정 방법:**
     1. ⚙️ 설정 페이지로 이동
@@ -323,4 +323,4 @@ def faq_interface():
 
 
 if __name__ == "__main__":
-    main() 
+    main()

@@ -25,8 +25,8 @@ LangGraph 기반 멀티 에이전트(Supervisor-Researcher-Analyst) 협업 시�
 
 ## Constraints
 
-- **LLM**: Azure OpenAI GPT-4o (배포 엔드포인트 필수)
-- **임베딩**: Azure OpenAI text-embedding-3-large
+- **LLM**: OpenAI·Claude·OpenAI 호환 API 중 선택. 모델 이름과 키 직접 설정
+- **임베딩**: OpenAI 또는 OpenAI 호환 API. 채팅과 별도 설정
 - **런타임**: Python 3.9+, Streamlit
 - **벡터 DB**: FAISS (로컬, 파일 변경 시 재구축)
 - **외부 API**: DuckDuckGo (무인증), KOSIS (API 키 선택)
@@ -39,7 +39,7 @@ LangGraph 기반 멀티 에이전트(Supervisor-Researcher-Analyst) 협업 시�
 - [x] Supervisor-Researcher-Analyst 3-에이전트 LangGraph 워크플로우
 - [x] PDF 동적 업로드 및 FAISS RAG 파이프라인
 - [x] Streamlit 채팅 UI + 실시간 에이전트 상태 표시
-- [x] Azure OpenAI 연동 (Chat + Embedding)
+- [x] 채팅·임베딩 API 연동 (제공자별 설정)
 - [x] DuckDuckGo 웹 검색 통합
 
 ### Phase 2

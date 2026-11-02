@@ -6,17 +6,16 @@ import re
 from typing import Dict, List
 from dotenv import load_dotenv
 from core.logger import logger
+from core.config import Config
 
 
 def setup_environment():
     """환경 변수를 로드하고 필수 변수가 설정되었는지 확인합니다."""
     load_dotenv()
     logger.info("[env] .env 로드 완료, 필수 환경변수 검증 시작")
-    required_vars = ["AOAI_ENDPOINT", "AOAI_API_KEY", "AOAI_DEPLOY_GPT4O", "AOAI_DEPLOY_EMBED_3_LARGE"]
-    for var in required_vars:
-        if not os.getenv(var):
-            logger.error("[env] 필수 환경변수 누락: %s", var)
-            raise ValueError(f"환경 변수 '{var}'가 설정되지 않았습니다. .env 파일을 확인하세요.")
+    missing = Config.validate_required_settings()
+    if missing:
+        raise ValueError("모델 설정 오류: " + "; ".join(missing.values()))
     logger.info("[env] 필수 환경변수 검증 완료")
 
 

@@ -2,6 +2,9 @@
 애플리케이션 설정 관리 모듈
 """
 import os
+import hashlib
+import json
+from urllib.parse import urlsplit
 from typing import Dict, Any, Optional
 from dotenv import load_dotenv
 
@@ -12,24 +15,21 @@ class Config:
     # 환경 변수 로드
     load_dotenv()
     
-    # ==============================================================================
-    # Azure OpenAI 설정
-    # ==============================================================================
-    AZURE_API_VERSION = os.getenv("AZURE_API_VERSION", "2024-02-01")
-    AOAI_ENDPOINT = os.getenv("AOAI_ENDPOINT")
-    AOAI_API_KEY = os.getenv("AOAI_API_KEY")
-    AOAI_DEPLOY_GPT4O = os.getenv("AOAI_DEPLOY_GPT4O", "gpt-4o")
-    AOAI_DEPLOY_GPT4O_MINI = os.getenv("AOAI_DEPLOY_GPT4O_MINI", "gpt-4o-mini")
-    AOAI_DEPLOY_EMBED_3_LARGE = os.getenv("AOAI_DEPLOY_EMBED_3_LARGE", "text-embedding-3-large")
-    AOAI_DEPLOY_EMBED_3_SMALL = os.getenv("AOAI_DEPLOY_EMBED_3_SMALL", "text-embedding-3-small")
-    AOAI_DEPLOY_EMBED_ADA = os.getenv("AOAI_DEPLOY_EMBED_ADA", "text-embedding-ada-002")
-    
+    LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai").strip()
+    LLM_MODEL = os.getenv("LLM_MODEL", "").strip()
+    LLM_API_KEY = os.getenv("LLM_API_KEY", "").strip()
+    LLM_BASE_URL = os.getenv("LLM_BASE_URL", "").strip()
+    EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "openai").strip()
+    EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "").strip()
+    EMBEDDING_API_KEY = os.getenv("EMBEDDING_API_KEY", "").strip()
+    EMBEDDING_BASE_URL = os.getenv("EMBEDDING_BASE_URL", "").strip()
+
     # ==============================================================================
     # 애플리케이션 설정
     # ==============================================================================
     LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
     DATA_DIR = os.getenv("DATA_DIR", "data")
-    APP_GRAPH_VERSION = os.getenv("APP_GRAPH_VERSION", "4")
+    APP_GRAPH_VERSION = os.getenv("APP_GRAPH_VERSION", "5")
     MAX_ITERATIONS = int(os.getenv("MAX_ITERATIONS", "10"))
     TIMEOUT_SECONDS = int(os.getenv("TIMEOUT_SECONDS", "300"))
     MAX_HISTORY_TURNS = int(os.getenv("MAX_HISTORY_TURNS", "6"))
@@ -89,34 +89,64 @@ class Config:
     
     @classmethod
     def validate_required_settings(cls) -> Dict[str, str]:
-        """필수 설정을 검증하고 누락된 항목을 반환합니다."""
-        missing_settings = {}
-        
-        # Azure OpenAI 필수 설정
-        if not cls.AOAI_ENDPOINT:
-            missing_settings["AOAI_ENDPOINT"] = "Azure OpenAI 엔드포인트가 필요합니다."
-        if not cls.AOAI_API_KEY:
-            missing_settings["AOAI_API_KEY"] = "Azure OpenAI API 키가 필요합니다."
-        if not cls.AOAI_DEPLOY_GPT4O:
-            missing_settings["AOAI_DEPLOY_GPT4O"] = "GPT-4o 모델 배포명이 필요합니다."
-        if not cls.AOAI_DEPLOY_EMBED_3_LARGE:
-            missing_settings["AOAI_DEPLOY_EMBED_3_LARGE"] = "임베딩 모델 배포명이 필요합니다."
-        
-        return missing_settings
-    
+        """Validate each provider's model, key, and endpoint without exposing secrets."""
+        errors = {}
+        for prefix, providers in (("LLM", ("openai", "claude", "openai_compatible")),
+                                  ("EMBEDDING", ("openai", "openai_compatible"))):
+            provider = getattr(cls, f"{prefix}_PROVIDER")
+            if provider not in providers:
+                errors[f"{prefix}_PROVIDER"] = f"{prefix}_PROVIDER는 {', '.join(providers)} 중 하나여야 합니다."
+            for field in ("MODEL", "API_KEY"):
+                name = f"{prefix}_{field}"
+                if not getattr(cls, name):
+                    errors[name] = f"{name} 설정이 필요합니다."
+            url = getattr(cls, f"{prefix}_BASE_URL")
+            if provider == "openai_compatible" and not url:
+                errors[f"{prefix}_BASE_URL"] = f"{prefix}_BASE_URL 설정이 필요합니다."
+            if url:
+                try:
+                    parsed = urlsplit(url)
+                    valid = parsed.scheme in ("http", "https") and bool(parsed.hostname)
+                    valid = valid and not any(character.isspace() for character in url)
+                    valid = valid and not (parsed.username or parsed.password or parsed.query or parsed.fragment)
+                    parsed.port
+                except ValueError:
+                    valid = False
+                if not valid:
+                    errors[f"{prefix}_BASE_URL"] = f"{prefix}_BASE_URL에는 인증정보 없는 HTTP(S) API 주소를 입력하세요."
+        return errors
+
+    @classmethod
+    def chat_base_url(cls) -> str:
+        """Return the explicit chat endpoint instead of SDK environment fallbacks."""
+        return cls.LLM_BASE_URL or ("https://api.anthropic.com" if cls.LLM_PROVIDER == "claude"
+                                    else "https://api.openai.com/v1")
+
+    @classmethod
+    def embedding_base_url(cls) -> str:
+        """Return the embedding endpoint independently from chat."""
+        return cls.EMBEDDING_BASE_URL or "https://api.openai.com/v1"
+
+    @classmethod
+    def embedding_signature(cls) -> str:
+        """Identify an embedding space without persisting its API key."""
+        settings = (cls.EMBEDDING_PROVIDER, cls.EMBEDDING_MODEL, cls.embedding_base_url().rstrip("/"))
+        return hashlib.sha256(json.dumps(settings).encode()).hexdigest()
+
     @classmethod
     def get_all_settings(cls) -> Dict[str, Any]:
         """모든 설정을 딕셔너리로 반환"""
+        errors = cls.validate_required_settings()
         return {
-            # Azure OpenAI 설정
-            "azure_api_version": cls.AZURE_API_VERSION,
-            "aoai_endpoint": cls.AOAI_ENDPOINT,
-            "aoai_deploy_gpt4o": cls.AOAI_DEPLOY_GPT4O,
-            "aoai_deploy_gpt4o_mini": cls.AOAI_DEPLOY_GPT4O_MINI,
-            "aoai_deploy_embed_3_large": cls.AOAI_DEPLOY_EMBED_3_LARGE,
-            "aoai_deploy_embed_3_small": cls.AOAI_DEPLOY_EMBED_3_SMALL,
-            "aoai_deploy_embed_ada": cls.AOAI_DEPLOY_EMBED_ADA,
-            
+            "llm_provider": cls.LLM_PROVIDER,
+            "llm_model": cls.LLM_MODEL,
+            "llm_base_url": "설정 오류" if "LLM_BASE_URL" in errors else cls.chat_base_url(),
+            "llm_api_key_set": bool(cls.LLM_API_KEY),
+            "embedding_provider": cls.EMBEDDING_PROVIDER,
+            "embedding_model": cls.EMBEDDING_MODEL,
+            "embedding_base_url": "설정 오류" if "EMBEDDING_BASE_URL" in errors else cls.embedding_base_url(),
+            "embedding_api_key_set": bool(cls.EMBEDDING_API_KEY),
+
             # 애플리케이션 설정
             "log_level": cls.LOG_LEVEL,
             "data_dir": cls.DATA_DIR,
@@ -174,7 +204,7 @@ class Config:
         # 주요 설정 표시
         settings = cls.get_all_settings()
         print("📋 주요 설정:")
-        print(f"   - Azure API 버전: {settings['azure_api_version']}")
+        print(f"   - 채팅 제공자: {settings['llm_provider']}")
         print(f"   - 로그 레벨: {settings['log_level']}")
         print(f"   - 데이터 디렉토리: {settings['data_dir']}")
         print(f"   - RAG 검색 전략: {settings['rag_search_strategy']}")

@@ -171,7 +171,7 @@ flowchart LR
     end
 
     subgraph "벡터화"
-        EMBED["Azure OpenAI Embeddings<br/>text-embedding-3-large"]
+        EMBED["설정된 임베딩 API<br/>text-embedding-3-large"]
         FAISS["FAISS VectorStore<br/>로컬 캐시 저장"]
     end
 
@@ -226,7 +226,7 @@ graph TD
     subgraph "core/ — 핵심 비즈니스 로직"
         CFG["config.py<br/>환경변수 / 설정"]
         LOG["logger.py<br/>로깅 시스템"]
-        MF["model_factory.py<br/>Azure OpenAI 팩토리"]
+        MF["model_factory.py<br/>모델 API 팩토리"]
         RAG["rag_pipeline.py<br/>RAG 파이프라인"]
         WS["web_search.py<br/>DuckDuckGo 검색"]
         SM["state_manager.py<br/>세션 상태 관리"]
@@ -398,7 +398,7 @@ Wiki-multiagents/
 │   ├── __init__.py                 # 모듈 export
 │   ├── config.py                   # 환경변수 및 설정 (Config 클래스)
 │   ├── logger.py                   # 구조화된 로깅
-│   ├── model_factory.py            # Azure OpenAI 모델 팩토리 (싱글톤)
+│   ├── model_factory.py            # 채팅·임베딩 모델 팩토리
 │   ├── rag_pipeline.py             # RAG: PDF → FAISS → Retriever
 │   ├── state_manager.py            # Streamlit 세션 상태 중앙 관리
 │   ├── web_search.py               # DuckDuckGo 웹 검색 + 재시도
@@ -445,8 +445,8 @@ Wiki-multiagents/
 | **UI** | Streamlit | 웹 인터페이스, 멀티페이지 |
 | **에이전트 오케스트레이션** | LangGraph (StateGraph) | Supervisor-Worker 패턴 |
 | **LLM 프레임워크** | LangChain | 에이전트, 프롬프트, 도구 |
-| **LLM** | Azure OpenAI GPT-4o | 추론 엔진 |
-| **임베딩** | Azure OpenAI text-embedding-3-large | 문서 벡터화 |
+| **LLM** | 설정된 채팅 모델 | 추론 엔진 |
+| **임베딩** | OpenAI 또는 OpenAI 호환 임베딩 | 문서 벡터화 |
 | **벡터DB** | FAISS (로컬) | 유사도 검색 |
 | **PDF 처리** | PyMuPDF | PDF → 텍스트 + metadata |
 | **웹 검색** | DDGS (DuckDuckGo) | 실시간 정보 수집 |
@@ -461,10 +461,12 @@ Wiki-multiagents/
 
 | 카테고리 | 변수 | 기본값 | 설명 |
 |---------|------|--------|------|
-| **Azure** | `AOAI_ENDPOINT` | — | Azure OpenAI 엔드포인트 |
-| | `AOAI_API_KEY` | — | API 키 |
-| | `AOAI_DEPLOY_GPT4O` | gpt-4o | GPT-4o 배포명 |
-| | `AOAI_DEPLOY_EMBED_3_LARGE` | text-embedding-3-large | 임베딩 배포명 |
+| **채팅** | `LLM_PROVIDER` | openai | openai, claude, openai_compatible |
+| | `LLM_MODEL`, `LLM_API_KEY` | 직접 설정 | 모델 이름과 API 키 |
+| | `LLM_BASE_URL` | 공식 주소 | 호환 API는 필수 |
+| **임베딩** | `EMBEDDING_PROVIDER` | openai | openai, openai_compatible |
+| | `EMBEDDING_MODEL`, `EMBEDDING_API_KEY` | 직접 설정 | 채팅과 별도 설정 |
+| | `EMBEDDING_BASE_URL` | 공식 주소 | 호환 API는 필수 |
 | **앱** | `MAX_ITERATIONS` | 10 | 에이전트 최대 반복 |
 | | `TIMEOUT_SECONDS` | 300 | 실행 타임아웃 |
 | | `MAX_HISTORY_TURNS` | 6 | 대화 히스토리 턴 수 |

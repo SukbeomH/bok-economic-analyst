@@ -13,10 +13,10 @@
 `--data-dir` 기본값은 프로젝트의 `data/`입니다. 검색은 해당 폴더의 PDF만 읽습니다.
 하위 폴더와 기존 FAISS 인덱스는 읽지 않습니다. 파일과 인덱스를 변경하지 않습니다.
 
-CLI는 Azure 설정이나 네트워크 없이 PDF 텍스트를 검색합니다. 공백으로 나눈 검색어 중
+CLI는 API 설정이나 네트워크 없이 PDF 텍스트를 검색합니다. 공백으로 나눈 검색어 중
 하나 이상을 포함하는 페이지를 찾고, 일치한 검색어 수가 많은 순서로 반환합니다.
 대소문자를 구분하지 않습니다. 동점은 파일명과 페이지 순서입니다.
-기존 Streamlit 화면의 Azure 의미 검색과는 별도 방식이며 결과에 `method="text"`를 표시합니다.
+기존 Streamlit 화면의 API 기반 의미 검색과는 별도 방식이며 결과에 `method="text"`를 표시합니다.
 동의어 검색과 스캔 문서 OCR은 지원하지 않습니다.
 
 성공하면 stdout에 JSON 하나를 출력하고 종료 코드 0을 반환합니다.
@@ -35,10 +35,10 @@ CLI는 Azure 설정이나 네트워크 없이 PDF 텍스트를 검색합니다. 
 ```
 
 테스트는 실제 PDF 파일과 CLI 프로세스, 외부 모델 호출을 대체한 LangGraph 실행,
-Streamlit 화면의 응답 수집을 검증합니다. Azure 서비스는 호출하지 않습니다.
+Streamlit 화면의 응답 수집을 검증합니다. 실제 모델 API는 호출하지 않습니다.
 `MAX_ITERATIONS`는 요청당 Supervisor 판단 횟수입니다. 시간 제한도 요청마다 새로 시작하며,
 Supervisor가 다시 실행될 때 확인합니다. 진행 중인 외부 API 호출을 중단하는 제한은 아닙니다.
-기존 환경에서 `APP_GRAPH_VERSION=3`을 지정했다면 `4`로 갱신하고 앱을 다시 실행하세요.
+기존 환경에서 `APP_GRAPH_VERSION`을 지정했다면 `5`로 갱신하고 앱을 다시 실행하세요.
 
 ## 프로젝트 개요
 
@@ -81,8 +81,8 @@ AI 에이전트 팀(Supervisor, Researcher, Analyst)이 협업하여 경제 질�
 | UI | Streamlit (멀티페이지, 네이티브 컴포넌트) |
 | 에이전트 오케스트레이션 | LangGraph (StateGraph) |
 | LLM 프레임워크 | LangChain |
-| LLM | Azure OpenAI GPT-4o |
-| 임베딩 | Azure OpenAI text-embedding-3-large |
+| LLM | OpenAI, Claude, OpenAI 호환 API 중 선택 |
+| 임베딩 | OpenAI 또는 OpenAI 호환 API, 채팅과 별도 설정 |
 | 벡터DB | FAISS (로컬 캐시) |
 | PDF 처리 | PyMuPDF |
 | 웹 검색 | DDGS (DuckDuckGo) |
@@ -165,7 +165,7 @@ sequenceDiagram
 flowchart LR
     PDF["PDF 업로드"] --> LOAD["PyMuPDFLoader<br/>metadata 보강"]
     LOAD --> SPLIT["TextSplitter<br/>1000자/100 overlap"]
-    SPLIT --> EMBED["Azure Embeddings"]
+    SPLIT --> EMBED["Configured Embeddings"]
     EMBED --> FAISS["FAISS 벡터DB<br/>로컬 캐시"]
     FAISS --> MMR["MMR Retriever<br/>k=5, fetch_k=20"]
     FAISS --> RELAX["Relaxed Retriever<br/>k=10, threshold=0.3"]
@@ -180,7 +180,7 @@ flowchart LR
 ├── core/                           # 핵심 비즈니스 로직
 │   ├── config.py                   # 환경변수 및 설정 (Config 클래스)
 │   ├── logger.py                   # 구조화된 로깅
-│   ├── model_factory.py            # Azure OpenAI 모델 팩토리 (싱글톤)
+│   ├── model_factory.py            # 채팅·임베딩 모델 팩토리
 │   ├── rag_pipeline.py             # RAG: PDF → FAISS → Retriever
 │   ├── state_manager.py            # Streamlit 세션 상태 중앙 관리
 │   ├── web_search.py               # DuckDuckGo 웹 검색 + 재시도
@@ -203,7 +203,7 @@ flowchart LR
 ├── docs/
 │   ├── ARCHITECTURE.md             # 상세 아키텍처 문서 (Mermaid 12개)
 │   └── plans/                      # 구현 계획 문서
-├── requirements.txt                # Python 의존성 (91개 패키지)
+├── requirements.txt                # Python 의존성
 └── env.example                     # 환경 변수 템플릿
 ```
 
@@ -211,15 +211,15 @@ flowchart LR
 
 ### 사전 준비
 
-- Azure OpenAI Service 엔드포인트 및 API 키
+- 채팅과 임베딩에 사용할 모델 이름과 API 키
 - Python 3.9+
 - [uv](https://docs.astral.sh/uv/) (권장) 또는 pip
 
 ### 설정
 
 ```bash
-git clone https://github.com/SukbeomH/Wiki-multiagents.git
-cd Wiki-multiagents
+git clone https://github.com/SukbeomH/bok-economic-analyst.git
+cd bok-economic-analyst
 
 # 가상환경 생성 및 의존성 설치
 uv venv && source .venv/bin/activate
@@ -227,7 +227,7 @@ uv pip install -r requirements.txt
 
 # 환경 변수 설정
 cp env.example .env
-# .env 파일을 열고 Azure OpenAI 정보 입력
+# .env 파일에 채팅과 임베딩 제공자·모델·키를 각각 입력
 ```
 
 ### 실행
@@ -241,11 +241,17 @@ uv run streamlit run app.py
 ## 환경 변수
 
 ```env
-# === 필수 ===
-AOAI_ENDPOINT=https://your-resource.openai.azure.com/
-AOAI_API_KEY=your-api-key
-AOAI_DEPLOY_GPT4O=gpt-4o
-AOAI_DEPLOY_EMBED_3_LARGE=text-embedding-3-large
+# === 채팅 ===
+LLM_PROVIDER=openai
+LLM_MODEL=gpt-4o
+LLM_API_KEY=
+LLM_BASE_URL=
+
+# === 임베딩, 채팅과 별도 설정 ===
+EMBEDDING_PROVIDER=openai
+EMBEDDING_MODEL=text-embedding-3-large
+EMBEDDING_API_KEY=
+EMBEDDING_BASE_URL=
 
 # === 앱 설정 (선택) ===
 MAX_ITERATIONS=10              # 에이전트 최대 반복 (기본: 10)
@@ -264,6 +270,24 @@ RAG_USE_COMPRESSION=false      # 컨텍스트 압축 (기본: false)
 # === 외부 연동 (선택) ===
 KOSIS_API_KEY=                 # KOSIS 통계청 API 키 (https://kosis.kr/openapi/)
 ```
+
+채팅 제공자는 다음 값 중 하나를 지정합니다. 모델 이름과 키는 선택한 서비스에서 직접 설정합니다.
+
+| 제공자 | `LLM_PROVIDER` | `LLM_MODEL` | `LLM_BASE_URL` |
+|---|---|---|---|
+| OpenAI | `openai` | 사용할 OpenAI 모델 이름 | 비워두면 공식 주소 |
+| Claude | `claude` | 사용할 Claude 모델 이름 | 비워두면 공식 주소 |
+| OpenAI 호환 API | `openai_compatible` | 서버가 제공하는 모델 이름 | API 루트 주소, 예를 들어 `http://localhost:8000/v1` |
+
+임베딩 제공자는 `openai` 또는 `openai_compatible`을 지정합니다. Claude는 자체 임베딩을 제공하지 않습니다.
+`EMBEDDING_MODEL`, `EMBEDDING_API_KEY`를 채팅과 별도로 설정하고, 호환 API라면
+`EMBEDDING_BASE_URL`도 지정합니다. 같은 키를 사용하려면 두 키 항목에 각각 직접 지정합니다.
+호환 서버는 채팅의 도구 호출과 임베딩 API 중 실제 사용하는 기능을 지원해야 합니다.
+설정을 바꾸면 앱을 다시 실행하세요. 임베딩 제공자·모델·주소가 바뀌거나 이전 형식의 인덱스가 있으면
+FAISS 인덱스를 다시 만듭니다. API 키는 캐시 식별값에 포함하거나 파일에 저장하지 않습니다.
+
+로그인된 Codex·Claude Code는 기존 BOK CLI를 외부에서 호출합니다.
+앱이 CLI 로그인 정보나 토큰을 읽어 API 키로 사용하지 않습니다.
 
 ## 사용 방법
 
@@ -304,7 +328,7 @@ Analyst가 수치 데이터를 포함한 분석을 생성하면 자동으로 plo
 | 접두사 | 영역 |
 |--------|------|
 | `[env]` | 환경 설정 |
-| `[model]` | Azure OpenAI 모델 |
+| `[model]` | 선택한 채팅·임베딩 모델 |
 | `[rag]` | RAG 파이프라인 |
 | `[supervisor]` | Supervisor 라우팅 |
 | `[agent-node:<name>]` | 에이전트 실행 |
@@ -319,7 +343,7 @@ Analyst가 수치 데이터를 포함한 분석을 생성하면 자동으로 plo
 
 | 문제 | 해결 |
 |------|------|
-| Azure OpenAI 연결 실패 | `.env`에서 엔드포인트/API 키/배포명 확인 |
+| 모델 API 연결 실패 | 제공자·모델 이름·API 키·호환 API 주소 확인 |
 | SSL 인증서 검증 실패 | DDGS `verify=False`로 자동 해결됨 |
 | 최종 응답이 비어있음 | 2단계 검색 + 폴백 로직으로 자동 처리됨 |
 | RAG 반복 빌드 | 사이드바 "🔄 그래프 재구성" 클릭 |

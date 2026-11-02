@@ -3,7 +3,6 @@
 환경설정 및 검증 기능을 제공합니다.
 Streamlit 네이티브 컴포넌트 우선 사용으로 안정적이고 일관된 UI 제공
 """
-import os
 import streamlit as st
 from core import Config
 from core.state_manager import StateManager
@@ -37,7 +36,10 @@ def basic_settings_interface():
     
     col1, col2 = st.columns(2)
     with col1:
-        st.metric("Azure API 버전", Config.AZURE_API_VERSION)
+        st.metric("채팅 제공자", Config.LLM_PROVIDER)
+        st.metric("채팅 모델", Config.LLM_MODEL)
+        st.metric("임베딩 제공자", Config.EMBEDDING_PROVIDER)
+        st.metric("임베딩 모델", Config.EMBEDDING_MODEL)
         st.metric("데이터 디렉토리", Config.DATA_DIR)
         st.metric("앱 그래프 버전", Config.APP_GRAPH_VERSION)
     
@@ -71,22 +73,8 @@ def basic_settings_interface():
     
     st.subheader("🔍 환경 변수")
     
-    # 환경 변수 표시
-    env_vars = {
-        "AOAI_ENDPOINT": os.getenv("AOAI_ENDPOINT", "설정되지 않음"),
-        "AOAI_API_KEY": os.getenv("AOAI_API_KEY", "설정되지 않음")[:10] + "..." if os.getenv("AOAI_API_KEY") else "설정되지 않음",
-        "AOAI_DEPLOY_GPT4O": os.getenv("AOAI_DEPLOY_GPT4O", "설정되지 않음"),
-        "AOAI_DEPLOY_EMBED_3_LARGE": os.getenv("AOAI_DEPLOY_EMBED_3_LARGE", "설정되지 않음"),
-        "AZURE_API_VERSION": os.getenv("AZURE_API_VERSION", "설정되지 않음"),
-        "LOG_LEVEL": os.getenv("LOG_LEVEL", "INFO"),
-        "RAG_SEARCH_STRATEGY": os.getenv("RAG_SEARCH_STRATEGY", "mmr"),
-        "RAG_K": os.getenv("RAG_K", "5"),
-        "RAG_FETCH_K": os.getenv("RAG_FETCH_K", "20"),
-        "RAG_LAMBDA_MULT": os.getenv("RAG_LAMBDA_MULT", "0.7"),
-        "RAG_SCORE_THRESHOLD": os.getenv("RAG_SCORE_THRESHOLD", "0.7"),
-        "RAG_USE_COMPRESSION": os.getenv("RAG_USE_COMPRESSION", "false"),
-    }
-    
+    env_vars = Config.get_all_settings()
+
     for key, value in env_vars.items():
         st.text(f"{key}: {value}")
     

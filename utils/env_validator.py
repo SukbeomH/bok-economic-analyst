@@ -147,10 +147,11 @@ class EnvironmentValidator:
    - .env 파일을 열고 실제 값으로 수정
 
 2. 필수 설정:
-   - AOAI_ENDPOINT: Azure OpenAI 엔드포인트
-   - AOAI_API_KEY: Azure OpenAI API 키
-   - AOAI_DEPLOY_GPT4O: GPT-4o 모델 배포명
-   - AOAI_DEPLOY_EMBED_3_LARGE: 임베딩 모델 배포명
+   - LLM_PROVIDER: openai, claude, openai_compatible 중 선택
+   - LLM_MODEL, LLM_API_KEY: 채팅 모델과 직접 설정한 키
+   - EMBEDDING_PROVIDER: openai 또는 openai_compatible
+   - EMBEDDING_MODEL, EMBEDDING_API_KEY: 임베딩 모델과 직접 설정한 키
+   - 호환 API는 각 그룹의 BASE_URL도 지정
 
 3. 선택 설정:
    - LOG_LEVEL: 로그 레벨 (DEBUG, INFO, WARNING, ERROR, CRITICAL)
@@ -160,7 +161,7 @@ class EnvironmentValidator:
    - python -c "from utils.env_validator import EnvironmentValidator; EnvironmentValidator.print_validation_report()"
 
 5. 실행:
-   - streamlit run app_refactored.py
+   - streamlit run app.py
 """
 
 
